@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { MediaInfo } from "$lib/tauri/media";
+  import { clipDuration, type Clip } from "$lib/project.svelte";
   import { formatBitrate, formatBytes, formatDuration, formatFps } from "$lib/format";
 
-  let { media }: { media: MediaInfo | null } = $props();
+  let { media, clip = null }: { media: MediaInfo | null; clip?: Clip | null } = $props();
   // ffprobe devuelve listas tipo "mov,mp4,m4a,3gp,3g2,mj2"; la extensión es más legible.
   let container = $derived(
     media ? `${(media.fileName.split(".").pop() ?? "").toUpperCase()} · ${media.container}` : "",
@@ -21,8 +22,19 @@
 {/snippet}
 
 <div class="flex-1 overflow-auto px-3 py-2 text-xs">
+  {#if clip}
+    <dl>
+      {@render section("Clip")}
+      {@render row("Nombre", clip.name)}
+      {@render row("Posición", formatDuration(clip.start))}
+      {@render row("Duración", formatDuration(clipDuration(clip)))}
+      {@render row("Entrada", formatDuration(clip.in))}
+      {@render row("Salida", formatDuration(clip.out))}
+    </dl>
+  {/if}
   {#if media}
     <dl>
+      {@render section(clip ? "Archivo de origen" : "Archivo")}
       {@render row("Archivo", media.fileName)}
       {@render row("Contenedor", container)}
       {@render row("Duración", formatDuration(media.durationSec))}
@@ -47,7 +59,7 @@
         {@render row("Layout", media.audio.channelLayout ?? "—")}
       {/if}
     </dl>
-  {:else}
-    <p class="py-6 text-center text-muted">Selecciona un archivo para ver sus datos</p>
+  {:else if !clip}
+    <p class="py-6 text-center text-muted">Selecciona un archivo o un clip para ver sus datos</p>
   {/if}
 </div>

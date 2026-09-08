@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import { FolderOpen } from "@lucide/svelte";
+  import { FolderOpen, Plus } from "@lucide/svelte";
   import TitleBar from "$lib/components/TitleBar.svelte";
   import Preview from "$lib/components/Preview.svelte";
+  import Timeline from "$lib/components/Timeline.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
+  import ExportDialog from "$lib/components/ExportDialog.svelte";
+  import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import {
     ffmpegVersion,
     pickMediaFiles,
@@ -13,24 +16,34 @@
     type MediaInfo,
   } from "$lib/tauri/media";
   import { basename, formatDuration } from "$lib/format";
+  import { project } from "$lib/project.svelte";
+  import { anyDialogOpen, ui } from "$lib/ui.svelte";
+  import { startDrag } from "$lib/drag";
 
-  let library = $state<MediaInfo[]>([]);
-  let selected = $state<MediaInfo | null>(null);
+  let timeline = $state<ReturnType<typeof Timeline>>();
+  let selectedMedia = $state<MediaInfo | null>(null);
   let error = $state<string | null>(null);
   let importing = $state(false);
+  /** Archivos externos (Finder / Explorador) sobre la ventana. */
   let dragging = $state(false);
+  /** Etiqueta que sigue al cursor al arrastrar un archivo de la biblioteca al timeline. */
+  let ghost = $state<{ x: number; y: number; name: string; over: boolean } | null>(null);
   let ffmpeg = $state<{ ok: boolean; text: string }>({ ok: false, text: "comprobando FFmpeg…" });
+
+  // El inspector muestra el clip seleccionado en el timeline; si no hay, el archivo de la biblioteca.
+  let inspectorClip = $derived(project.selected?.clip ?? null);
+  let inspectorMedia = $derived(inspectorClip ? project.mediaOf(inspectorClip) : selectedMedia);
 
   async function importPaths(paths: string[]) {
     if (paths.length === 0) return;
     importing = true;
     error = null;
     for (const path of paths) {
-      if (library.some((m) => m.path === path)) continue;
+      if (project.media.some((m) => m.path === path)) continue;
       try {
         const info = await probeMedia(path);
-        library.push(info);
-        selected ??= info;
+        project.addMedia(info);
+        selectedMedia ??= info;
       } catch (e) {
         error = `${basename(path)}: ${String(e)}`;
       }
@@ -40,6 +53,85 @@
 
   async function importFromDialog() {
     await importPaths(await pickMediaFiles());
+  }
+
+  /** Arrastrar un archivo de la biblioteca hasta el timeline lo añade en ese instante. */
+  function onMediaPointerDown(e: PointerEvent, item: MediaInfo) {
+    if (e.button !== 0) return;
+    startDrag(e, {
+      onMove(_dx, _dy, ev) {
+        const over = timeline?.locate(ev.clientX, ev.clientY) !== null;
+        ghost = { x: ev.clientX, y: ev.clientY, name: item.fileName, over };
+      },
+      onEnd(ev, moved) {
+        ghost = null;
+        if (!moved) return;
+        const hit = timeline?.locate(ev.clientX, ev.clientY);
+        if (hit) project.addClip(item, hit.time);
+      },
+    });
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (anyDialogOpen()) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select, [contenteditable]")) return;
+    const mod = e.metaKey || e.ctrlKey;
+    const key = e.key.toLowerCase();
+
+    if (mod && key === "z") {
+      e.preventDefault();
+      if (e.shiftKey) project.redo();
+      else project.undo();
+      return;
+    }
+    if (mod && key === "y") {
+      e.preventDefault();
+      project.redo();
+      return;
+    }
+    if (mod && key === "b") {
+      e.preventDefault();
+      project.splitAtPlayhead();
+      return;
+    }
+    if (mod) return;
+
+    switch (e.key) {
+      case " ":
+        e.preventDefault();
+        project.togglePlay();
+        break;
+      case "s":
+      case "S":
+        project.splitAtPlayhead();
+        break;
+      case "Backspace":
+      case "Delete":
+        project.deleteSelected();
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        if (e.shiftKey) project.nudge(-1);
+        else project.stepFrames(-1);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (e.shiftKey) project.nudge(1);
+        else project.stepFrames(1);
+        break;
+      case "Home":
+        project.playing = false;
+        project.setPlayhead(0);
+        break;
+      case "End":
+        project.playing = false;
+        project.setPlayhead(project.duration);
+        break;
+      case "Escape":
+        project.selectedId = null;
+        break;
+    }
   }
 
   onMount(() => {
@@ -67,11 +159,13 @@
   });
 </script>
 
+<svelte:window onkeydown={onKeyDown} />
+
 <div class="flex h-screen flex-col bg-bg text-text">
   <TitleBar />
 
   <div class="grid min-h-0 flex-1 grid-cols-[260px_1fr_300px] gap-2 p-2">
-    <!-- Medios -->
+    <!-- Biblioteca -->
     <aside class="panel">
       <div class="panel-header">
         <span>Medios</span>
@@ -84,12 +178,18 @@
         <p class="border-b border-border bg-red-500/10 px-3 py-2 text-xs text-red-500">{error}</p>
       {/if}
       <ul class="flex-1 space-y-1 overflow-auto p-2">
-        {#each library as item (item.path)}
-          <li>
+        {#each project.media as item (item.path)}
+          <li class="relative">
             <button
-              class="media-item"
-              class:active={selected?.path === item.path}
-              onclick={() => (selected = item)}
+              class="media-item pr-9"
+              class:active={selectedMedia?.path === item.path && !inspectorClip}
+              onclick={() => {
+                selectedMedia = item;
+                project.selectedId = null;
+              }}
+              ondblclick={() => project.addClip(item)}
+              onpointerdown={(e) => onMediaPointerDown(e, item)}
+              title="Doble clic o arrastrar al timeline para añadirlo"
             >
               <span class="truncate text-sm">{item.fileName}</span>
               <span class="text-[11px] text-muted">
@@ -97,45 +197,56 @@
                 · {item.video ? `${item.video.width}×${item.video.height}` : "solo audio"}
               </span>
             </button>
+            <button
+              class="tool absolute top-1/2 right-1.5 h-6 w-6 -translate-y-1/2 justify-center px-0"
+              title="Añadir al final del timeline"
+              onclick={() => project.addClip(item)}
+            >
+              <Plus size={14} />
+            </button>
           </li>
         {:else}
-          <li class="px-3 py-8 text-center text-xs text-muted">
-            Arrastra vídeos aquí o pulsa Importar
-          </li>
+          <li class="px-3 py-8 text-center text-xs text-muted">Arrastra vídeos aquí o pulsa Importar</li>
         {/each}
       </ul>
     </aside>
 
     <!-- Preview -->
     <section class="panel">
-      <Preview media={selected} />
+      <Preview />
     </section>
 
     <!-- Inspector -->
     <aside class="panel">
       <div class="panel-header"><span>Inspector</span></div>
-      <MediaInfoPanel media={selected} />
+      <MediaInfoPanel media={inspectorMedia} clip={inspectorClip} />
     </aside>
   </div>
 
-  <!-- Timeline (placeholder: se construye en el siguiente paso) -->
-  <section class="panel mx-2 mb-2 h-52 shrink-0">
-    <div class="panel-header">
-      <span>Timeline</span>
-      <span class="font-normal normal-case tracking-normal">Próximo paso</span>
-    </div>
-    <div class="grid min-h-0 flex-1 grid-rows-[24px_1fr_1fr]">
-      <div class="ruler"></div>
-      <div class="track"><span class="track-label">V1</span></div>
-      <div class="track"><span class="track-label">A1</span></div>
-    </div>
-  </section>
+  <div class="mx-2 mb-2 h-60 shrink-0">
+    <Timeline bind:this={timeline} />
+  </div>
 
   <footer class="flex h-7 shrink-0 items-center gap-2 border-t border-border bg-panel px-3 text-[11px] text-muted">
     <span class="size-1.5 rounded-full {ffmpeg.ok ? 'bg-emerald-500' : 'bg-red-500'}"></span>
     <span>{ffmpeg.text}</span>
-    <span class="ml-auto">{library.length} {library.length === 1 ? "archivo" : "archivos"}</span>
+    <span class="ml-auto">
+      {project.media.length} {project.media.length === 1 ? "archivo" : "archivos"}
+      · {project.clipCount} {project.clipCount === 1 ? "clip" : "clips"}
+      · {formatDuration(project.duration)}
+    </span>
   </footer>
+
+  {#if ghost}
+    <div
+      class="pointer-events-none fixed z-50 max-w-60 truncate rounded-md border bg-panel px-2 py-1 text-xs shadow-lg {ghost.over
+        ? 'border-accent'
+        : 'border-border opacity-70'}"
+      style="left:{ghost.x + 12}px; top:{ghost.y + 12}px"
+    >
+      {ghost.name}
+    </div>
+  {/if}
 
   {#if dragging}
     <div
@@ -143,5 +254,12 @@
     >
       Suelta para importar
     </div>
+  {/if}
+
+  {#if ui.settingsOpen}
+    <SettingsDialog />
+  {/if}
+  {#if ui.exportOpen}
+    <ExportDialog />
   {/if}
 </div>

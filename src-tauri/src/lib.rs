@@ -1,4 +1,6 @@
+mod export;
 mod media;
+mod secrets;
 
 use tauri::Manager;
 
@@ -38,7 +40,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![ffmpeg_version, probe_media, startup_files])
+        .manage(export::ExportState::default())
+        .invoke_handler(tauri::generate_handler![
+            ffmpeg_version,
+            probe_media,
+            startup_files,
+            export::export_video,
+            export::cancel_export,
+            secrets::secret_set,
+            secrets::secret_status,
+            secrets::secret_delete,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
