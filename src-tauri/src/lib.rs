@@ -1,0 +1,44 @@
+mod media;
+
+use tauri::Manager;
+
+/// Versión del ffmpeg empaquetado como sidecar. Sirve para comprobar desde la
+/// UI que el sidecar se resuelve bien en dev y en el bundle.
+#[tauri::command]
+async fn ffmpeg_version(app: tauri::AppHandle) -> Result<String, String> {
+    media::ffmpeg_version(&app).await
+}
+
+/// Analiza un archivo con ffprobe y autoriza su ruta en el protocolo `asset://`
+/// para que el WebView pueda reproducirlo en el preview.
+#[tauri::command]
+async fn probe_media(app: tauri::AppHandle, path: String) -> Result<media::MediaInfo, String> {
+    let info = media::probe(&app, &path).await?;
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| e.to_string())?;
+    Ok(info)
+}
+
+/// Rutas pasadas por línea de comandos al arrancar (`quickcut video.mp4`,
+/// o "Abrir con…" en Windows). Solo devuelve las que existen como archivo.
+#[tauri::command]
+fn startup_files() -> Vec<String> {
+    std::env::args_os()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![ffmpeg_version, probe_media, startup_files])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
