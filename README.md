@@ -80,6 +80,24 @@ scripts/release.sh 0.2.0   # coge la clave de ~/.tauri/cutvideo.key
 El script sube la versión en los tres manifiestos, compila, genera el
 `latest.json` que consulta el actualizador y publica la release en GitHub.
 
+## Windows
+
+Desde macOS no se puede compilar para Windows: hacen falta el toolchain de
+MSVC, WebView2 y el instalador. Lo hace GitHub en una máquina Windows con el
+flujo `.github/workflows/windows.yml`, que se dispara al publicar una release y
+añade el `.exe` a la misma. FFmpeg se baja ahí en su versión LGPL, para no
+arrastrar la GPL a una app MIT.
+
+Hace falta guardar una vez la clave de firma del actualizador como secreto del
+repositorio:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/cutvideo.key
+```
+
+Cada plataforma sube su propio `latest.json`, así que
+`scripts/merge-latest-json.sh` los junta para que el actualizador vea las dos.
+
 ## Firma de la app (macOS)
 
 `src-tauri/tauri.conf.json` lleva el Developer ID del autor en

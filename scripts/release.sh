@@ -73,7 +73,9 @@ PY
 echo "→ Publicando en GitHub"
 # Si la versión ya era esa, no hay nada que guardar.
 git diff --quiet || git commit -am "Versión $VERSION"
-git tag "v$VERSION"
+# Etiqueta anotada: `git push --follow-tags` ignora las ligeras y la release
+# se quedaría sin su tag.
+git tag -a "v$VERSION" -m "CutVideo $VERSION"
 git push --follow-tags
 gh release create "v$VERSION" --title "CutVideo $VERSION" --notes "$NOTAS" \
   "$ARCHIVO" "$ARCHIVO.sig" "$BUNDLE/latest.json" \

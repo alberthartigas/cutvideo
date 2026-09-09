@@ -1,0 +1,74 @@
+# Compila la versión de Windows y la añade a una release que ya exista.
+#
+# El .app de macOS se compila en el Mac del autor (ahí está el Developer ID);
+# Windows lo hace GitHub en una máquina Windows, porque desde macOS no se puede
+# cross-compilar: hacen falta el toolchain de MSVC, WebView2 y el instalador.
+#
+# Se dispara solo al publicar una release, o a mano desde la pestaña Actions.
+name: Windows
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Etiqueta de la release (por ejemplo v0.1.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # FFmpeg va como sidecar, no como librería enlazada. Se coge una build
+      # LGPL para no arrastrar la GPL a una app con licencia MIT.
+      - name: Preparar los sidecars de FFmpeg
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
+          $bin = Get-ChildItem -Path ffmpeg-tmp -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          Copy-Item $bin.FullName "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe"
+          Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "src-tauri/binaries/ffprobe-x86_64-pc-windows-msvc.exe"
+
+      - run: npm ci
+
+      - name: Compilar y subir a la release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Sin esta clave el paquete sale sin firmar y el actualizador lo
+          # rechaza. Se guarda con: gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/cutvideo.key
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tagName: ${{ github.event.release.tag_name || inputs.tag }}
+          releaseId: ${{ github.event.release.id }}
+          args: --target x86_64-pc-windows-msvc
+
+      # tauri-action escribe su propio latest.json con las plataformas que
+      # acaba de compilar, y eso borraría la entrada de macOS. Aquí se vuelven
+      # a juntar las dos sobre el archivo que ya está en la release.
+      - name: Juntar el latest.json de las dos plataformas
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/merge-latest-json.sh "${{ github.event.release.tag_name || inputs.tag }}"
