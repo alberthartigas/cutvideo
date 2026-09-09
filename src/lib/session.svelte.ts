@@ -1,6 +1,7 @@
 import { project } from "$lib/project.svelte";
 import { refreshSamples } from "$lib/preview/samples.svelte";
 import { mediaSrc } from "$lib/tauri/media";
+import { fitToWork } from "$lib/tauri/window";
 import {
   listProjects,
   loadProjectFile,
@@ -74,6 +75,7 @@ class Session {
     this.#dirty = true;
     // Se guarda ya para que aparezca en la lista aunque no se toque nada.
     this.save();
+    fitToWork(true);
   }
 
   async open_(id: string) {
@@ -85,6 +87,7 @@ class Session {
     this.savedAt = file.modifiedAt;
     this.error = null;
     this.#dirty = false;
+    fitToWork(true);
     refreshSamples();
   }
 
@@ -94,6 +97,7 @@ class Session {
     clearTimeout(this.#timer);
     this.id = null;
     project.reset();
+    fitToWork(false);
   }
 
   rename(name: string) {

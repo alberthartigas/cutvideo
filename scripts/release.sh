@@ -37,6 +37,12 @@ for f in ("package.json", "src-tauri/tauri.conf.json"):
     p = pathlib.Path(f); d = json.loads(p.read_text())
     d["version"] = v
     p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+# El lock lleva la versión por duplicado y `npm ci` se niega a instalar si no
+# coincide con package.json, que es lo que rompía la compilación de Windows.
+p = pathlib.Path("package-lock.json"); d = json.loads(p.read_text())
+d["version"] = v
+d["packages"][""]["version"] = v
+p.write_text(json.dumps(d, indent=2) + "\n")
 p = pathlib.Path("src-tauri/Cargo.toml")
 p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{v}"', p.read_text(), count=1, flags=re.M))
 PY
