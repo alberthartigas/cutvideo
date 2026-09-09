@@ -807,6 +807,7 @@ name = "cutvideo"
 version = "0.1.1"
 dependencies = [
  "keyring",
+ "minisign-verify",
  "reqwest",
  "rustfft",
  "serde",

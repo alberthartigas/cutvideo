@@ -28,6 +28,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["multipart
 rustfft = "6.4.1"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
+minisign-verify = "0.2.5"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

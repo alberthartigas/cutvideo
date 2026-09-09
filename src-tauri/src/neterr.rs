@@ -40,3 +40,30 @@ pub fn describe(context: &str, e: &(dyn Error + 'static)) -> String {
         None => format!("{context}: {cadena}"),
     }
 }
+
+#[cfg(test)]
+mod firma_actualizacion {
+    /// La app solo instalará una actualización si la firma del paquete valida
+    /// contra la clave pública que lleva dentro. Si ese par no cuadra, el
+    /// actualizador rechaza todo en silencio, así que conviene comprobarlo.
+    #[test]
+    fn el_paquete_publicado_valida_con_la_clave_de_la_app() {
+        let (Ok(pkg), Ok(sig), Ok(pubkey)) = (
+            std::env::var("CUTVIDEO_UPDATE_PKG"),
+            std::env::var("CUTVIDEO_UPDATE_SIG"),
+            std::env::var("CUTVIDEO_UPDATE_PUBKEY"),
+        ) else {
+            eprintln!("saltada: faltan CUTVIDEO_UPDATE_PKG/SIG/PUBKEY");
+            return;
+        };
+        let datos = std::fs::read(&pkg).expect("leer el paquete");
+        let firma = minisign_verify::Signature::decode(&std::fs::read_to_string(&sig).unwrap())
+            .expect("decodificar la firma");
+        let clave = minisign_verify::PublicKey::decode(&std::fs::read_to_string(&pubkey).unwrap())
+            .expect("decodificar la clave pública");
+        clave
+            .verify(&datos, &firma, false)
+            .expect("la firma NO valida con la clave que lleva la app");
+        println!("FIRMA OK: el paquete lo firmó la clave del autor");
+    }
+}
