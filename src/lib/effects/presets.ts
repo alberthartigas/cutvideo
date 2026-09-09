@@ -1,3 +1,4 @@
+import type { ChromaKey } from "./chroma";
 /**
  * Efectos de color por clip. Cada preset tiene su versión CSS (preview, filtro
  * sobre el <video>) y su versión ffmpeg (export). No son idénticas al píxel,
@@ -63,6 +64,8 @@ export const DEFAULT_ADJUSTMENTS: Adjustments = { brightness: 0, contrast: 1, sa
 export interface ClipEffects {
   preset: string | null;
   adjust: Adjustments;
+  /** Pantalla verde: deja ver la pista de fondo por detrás. */
+  chroma?: ChromaKey;
 }
 
 export const isDefaultAdjust = (a: Adjustments) =>

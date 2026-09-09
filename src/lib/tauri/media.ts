@@ -32,12 +32,16 @@ export interface MediaInfo {
   audio: AudioStream | null;
   videoStreamCount: number;
   audioStreamCount: number;
+  /** true para imágenes y stickers: van a la pista de parches. */
+  isImage: boolean;
 }
 
 export const VIDEO_EXTENSIONS = [
   "mp4", "mov", "m4v", "mkv", "webm", "avi", "mts", "m2ts", "ts", "3gp", "wmv", "flv", "mxf", "gif",
 ];
 export const AUDIO_EXTENSIONS = ["mp3", "wav", "aac", "m4a", "flac", "ogg", "opus", "aiff"];
+/** Parches: imágenes, stickers de WhatsApp (.webp) y PDF. */
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic", "pdf"];
 
 /** Abre el diálogo nativo y devuelve las rutas elegidas (vacío si se cancela). */
 export async function pickMediaFiles(): Promise<string[]> {
@@ -48,6 +52,7 @@ export async function pickMediaFiles(): Promise<string[]> {
     filters: [
       { name: "Vídeo", extensions: VIDEO_EXTENSIONS },
       { name: "Audio", extensions: AUDIO_EXTENSIONS },
+      { name: "Imágenes y stickers", extensions: IMAGE_EXTENSIONS },
       { name: "Todos los archivos", extensions: ["*"] },
     ],
   });

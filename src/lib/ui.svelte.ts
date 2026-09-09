@@ -1,5 +1,13 @@
 /** Estado de la interfaz que no pertenece al proyecto (diálogos abiertos, etc.). */
-export type PanelId = "media" | "audio" | "text" | "subtitles" | "effects" | "transitions" | "autoedit";
+export type PanelId =
+  | "media"
+  | "audio"
+  | "text"
+  | "subtitles"
+  | "patches"
+  | "effects"
+  | "transitions"
+  | "autoedit";
 
 export const ui = $state({
   settingsOpen: false,

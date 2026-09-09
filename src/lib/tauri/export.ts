@@ -6,6 +6,8 @@ import { clipEnd, effectiveTransition, project, type Clip, type FrameSize } from
 import { renderTextClips } from "$lib/text/render";
 import { getTransition } from "$lib/transitions/presets";
 import { effectsFfmpeg } from "$lib/effects/presets";
+import { chromaFfmpeg } from "$lib/effects/chroma";
+import { drawPatches, loadPatchImages } from "$lib/patches/render";
 
 export type { FrameSize };
 
@@ -20,6 +22,8 @@ export interface ExportClip {
   transition?: { xfade: string; duration: number } | null;
   /** Cadena de filtros de color de ffmpeg, o null. */
   filters?: string | null;
+  /** Cadena de filtros de pantalla verde, o null. */
+  chroma?: string | null;
 }
 
 export interface ExportOverlay {
@@ -37,6 +41,7 @@ export interface ExportPlan {
   fps: number;
   video: ExportClip[];
   audio: ExportClip[];
+  background: ExportClip[];
   encoder: ExportEncoder;
   overlays: ExportOverlay[];
 }
@@ -91,22 +96,28 @@ export function buildExportPlan(
       const preset = c.transition ? getTransition(c.transition.id) : null;
       const duration = next ? effectiveTransition(c, next) : 0;
       const filters = effectsFfmpeg(c.effects, size.height);
+      const chroma = chromaFfmpeg(c.effects?.chroma);
       return {
         ...toClip(c),
         transition: preset && duration > 0 ? { xfade: preset.xfade, duration } : null,
         filters: filters || null,
+        chroma: chroma || null,
       };
     }),
+    background: project.backgroundTrack.clips.map((c) => ({
+      ...toClip(c),
+      filters: effectsFfmpeg(c.effects, size.height) || null,
+    })),
     audio: project.audioTrack.clips.map(toClip),
     encoder,
     overlays,
   };
 }
 
-/** Intervalos [inicio, fin] donde hay algún texto, fusionando los que se tocan. */
-function textSegments(clips: Clip[]): [number, number][] {
+/** Intervalos [inicio, fin] donde hay algo que dibujar encima, fusionando los que se tocan. */
+function overlaySegments(clips: Clip[]): [number, number][] {
   const spans = clips
-    .filter((c) => c.text)
+    .filter((c) => c.text || c.patch)
     .map((c): [number, number] => [c.start, clipEnd(c)])
     .sort((a, b) => a[0] - b[0]);
   const out: [number, number][] = [];
@@ -127,9 +138,14 @@ export async function renderTextOverlays(
   onProgress: (fraction: number) => void,
   isCancelled: () => boolean,
 ): Promise<ExportOverlay[]> {
-  const clips = project.textClips;
-  const segments = textSegments(clips);
+  const textClips = project.textClips;
+  const patchClips = project.patchTrack.clips;
+  const clips = [...patchClips, ...textClips];
+  const segments = overlaySegments(clips);
   if (segments.length === 0) return [];
+  // Los parches se dibujan en la misma capa que los textos: así la posición,
+  // el giro y el seguimiento salen exactamente igual que en el preview.
+  const images = await loadPatchImages(patchClips);
 
   const base = await invoke<string>("export_overlay_begin");
   const canvas = document.createElement("canvas");
@@ -147,7 +163,10 @@ export async function renderTextOverlays(
     for (let i = 0; i < r.to - r.from; i++) {
       if (isCancelled()) throw new Error("Exportación cancelada");
       // Muestreamos en el centro del frame, igual que hará el vídeo.
-      renderTextClips(ctx, clips, (r.from + i + 0.5) / fps, size);
+      const t = (r.from + i + 0.5) / fps;
+      ctx.clearRect(0, 0, size.width, size.height);
+      drawPatches(ctx, patchClips, images, t, size);
+      renderTextClips(ctx, textClips, t, size, false);
       const blob = await new Promise<Blob>((resolve, reject) =>
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo codificar el PNG"))), "image/png"),
       );

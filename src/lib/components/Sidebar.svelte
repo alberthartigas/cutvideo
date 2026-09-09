@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Captions, Library, Music, Sparkles, SquareSplitHorizontal, Type, WandSparkles } from "@lucide/svelte";
+  import { Captions, Library, Music, Sparkles, SquareSplitHorizontal, Sticker, Type, WandSparkles } from "@lucide/svelte";
   import { ui, type PanelId } from "$lib/ui.svelte";
 
   const SECTIONS: { id: PanelId; label: string; icon: typeof Library }[] = [
@@ -7,6 +7,7 @@
     { id: "audio", label: "Audio", icon: Music },
     { id: "text", label: "Texto", icon: Type },
     { id: "subtitles", label: "Subtítulos", icon: Captions },
+    { id: "patches", label: "Parches", icon: Sticker },
     { id: "effects", label: "Efectos", icon: Sparkles },
     { id: "transitions", label: "Transiciones", icon: SquareSplitHorizontal },
     { id: "autoedit", label: "Autoedición", icon: WandSparkles },

@@ -167,9 +167,18 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
   ctx.restore();
 }
 
-/** Limpia el canvas y dibuja todos los clips de texto activos en el instante `t`. */
-export function renderTextClips(ctx: Ctx, clips: TextClipLike[], t: number, frame: { width: number; height: number }) {
-  ctx.clearRect(0, 0, frame.width, frame.height);
+/**
+ * Dibuja los clips de texto activos en el instante `t`.
+ * `clear` a false conserva lo que ya hubiera pintado (los parches van debajo).
+ */
+export function renderTextClips(
+  ctx: Ctx,
+  clips: TextClipLike[],
+  t: number,
+  frame: { width: number; height: number },
+  clear = true,
+) {
+  if (clear) ctx.clearRect(0, 0, frame.width, frame.height);
   for (const clip of clips) {
     if (!clip.text) continue;
     const duration = clip.out - clip.in;

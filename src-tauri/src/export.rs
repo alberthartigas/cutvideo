@@ -45,6 +45,9 @@ pub struct ExportClip {
     /// Filtros de color de ffmpeg ya montados por el frontend (validados abajo).
     #[serde(default)]
     pub filters: Option<String>,
+    /// Filtros de pantalla verde, también validados.
+    #[serde(default)]
+    pub chroma: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -78,6 +81,9 @@ pub struct ExportPlan {
     pub video: Vec<ExportClip>,
     /// Clips de la pista de audio, con su posición en `start`.
     pub audio: Vec<ExportClip>,
+    /// Clips de la pista de fondo (F1): se ven por detrás de la pantalla verde.
+    #[serde(default)]
+    pub background: Vec<ExportClip>,
     /// "auto" (hardware si lo hay) o "x264".
     pub encoder: String,
     #[serde(default)]
@@ -120,12 +126,22 @@ enum RunError {
     Failed(String),
 }
 
+/// Igual que `safe_filters`, para los filtros de pantalla verde.
+fn safe_chroma(raw: &Option<String>) -> Option<String> {
+    const ALLOWED: &[&str] = &["format", "chromakey", "colorkey", "despill"];
+    check_filters(raw, ALLOWED)
+}
+
 /// Solo permitimos los filtros que genera el frontend: nombres conocidos y
 /// caracteres seguros, para que nada pueda inyectar otra cosa en el grafo.
 fn safe_filters(raw: &Option<String>) -> Option<String> {
     const ALLOWED: &[&str] = &[
         "hue", "eq", "colorchannelmixer", "colorbalance", "gblur", "vignette", "negate",
     ];
+    check_filters(raw, ALLOWED)
+}
+
+fn check_filters(raw: &Option<String>, allowed: &[&str]) -> Option<String> {
     let f = raw.as_deref()?.trim();
     if f.is_empty() || f.len() > 500 {
         return None;
@@ -138,7 +154,7 @@ fn safe_filters(raw: &Option<String>) -> Option<String> {
     }
     if f.split(',').all(|part| {
         let name = part.split('=').next().unwrap_or("");
-        ALLOWED.contains(&name)
+        allowed.contains(&name)
     }) {
         Some(f.to_string())
     } else {
@@ -185,7 +201,7 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     .to_vec();
 
     // Un input por clip, con búsqueda en el input (-ss antes de -i): rápida y exacta.
-    for c in plan.video.iter().chain(&plan.audio) {
+    for c in plan.video.iter().chain(&plan.audio).chain(&plan.background) {
         args.extend([
             "-ss".into(),
             sec(c.in_sec),
@@ -209,10 +225,13 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     for (i, c) in plan.video.iter().enumerate() {
         // Todos los segmentos al mismo tamaño/fps/formato para poder concatenarlos.
         let fx = safe_filters(&c.filters).map(|f| format!(",{f}")).unwrap_or_default();
+        // Con croma el clip conserva el canal alfa para que se vea el fondo por detrás.
+        let chroma = safe_chroma(&c.chroma).map(|f| format!(",{f}")).unwrap_or_default();
+        let out_fmt = if chroma.is_empty() { "format=yuv420p" } else { "format=yuva420p" };
         filters.push(format!(
             "[{i}:v]setpts=PTS-STARTPTS,\
              scale={w}:{h}:force_original_aspect_ratio=decrease:flags=bicubic,\
-             pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={fps}{fx},format=yuv420p[v{i}]"
+             pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1,fps={fps}{fx}{chroma},{out_fmt}[v{i}]"
         ));
         if c.has_audio {
             filters.push(format!(
@@ -269,8 +288,34 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     } else {
         filters.push("[vcat]null[vpad]".into());
     }
-    // Superponemos cada capa de texto desplazada a su instante; antes y después, pasa el vídeo tal cual.
-    let mut last = String::from("vpad");
+
+    // Fondo (F1): lienzo negro con los clips de fondo colocados en su instante.
+    // El vídeo principal va encima; si lleva croma, deja ver esto por detrás.
+    let bg_first = plan.video.len() + plan.audio.len();
+    let mut base = String::from("canvas");
+    filters.push(format!(
+        "color=c=black:s={w}x{h}:r={fps}:d={}[canvas]",
+        sec(total)
+    ));
+    for (k, c) in plan.background.iter().enumerate() {
+        let idx = bg_first + k;
+        let end = c.start + c.duration();
+        filters.push(format!(
+            "[{idx}:v]setpts=PTS-STARTPTS+{}/TB,\
+             scale={w}:{h}:force_original_aspect_ratio=increase:flags=bicubic,\
+             crop={w}:{h},setsar=1,fps={fps}[bgv{k}]",
+            sec(c.start)
+        ));
+        filters.push(format!(
+            "[{base}][bgv{k}]overlay=eof_action=pass:enable='between(t,{},{})'[bgm{k}]",
+            sec(c.start),
+            sec(end)
+        ));
+        base = format!("bgm{k}");
+    }
+    filters.push(format!("[{base}][vpad]overlay=eof_action=pass:format=auto[vcomp]"));
+    // Superponemos cada capa de texto y parches desplazada a su instante.
+    let mut last = String::from("vcomp");
     let first_overlay_input = plan.video.len() + plan.audio.len();
     for (k, ov) in plan.overlays.iter().enumerate() {
         let idx = first_overlay_input + k;
@@ -540,10 +585,89 @@ mod tests {
         assert!(safe_filters(&Some("eq=contrast=1 -y /tmp/x".into())).is_none());
         assert!(safe_filters(&Some("".into())).is_none());
         assert!(safe_filters(&None).is_none());
+        // El croma tiene su propia lista: no se cuelan filtros de color por ahí.
+        assert!(safe_chroma(&Some("format=yuva420p,chromakey=0x00b140:0.3:0.08".into())).is_some());
+        assert!(safe_chroma(&Some("despill=type=green:mix=0.4".into())).is_some());
+        assert!(safe_chroma(&Some("eq=contrast=2".into())).is_none());
+        assert!(safe_chroma(&Some("movie=x.mp4".into())).is_none());
     }
 
     fn clip(path: &str, in_sec: f64, out: f64, start: f64, has_audio: bool) -> ExportClip {
-        ExportClip { path: path.into(), in_sec, out, start, has_audio, transition: None, filters: None }
+        ExportClip {
+            path: path.into(),
+            in_sec,
+            out,
+            start,
+            has_audio,
+            transition: None,
+            filters: None,
+            chroma: None,
+        }
+    }
+
+    /// La pantalla verde debe dejar ver la pista de fondo por detrás.
+    #[test]
+    fn chroma_key_shows_the_background_track() {
+        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("CUTVIDEO_FFMPEG"), std::env::var("CUTVIDEO_TEST_DIR")) else {
+            eprintln!("saltada: define CUTVIDEO_FFMPEG y CUTVIDEO_TEST_DIR");
+            return;
+        };
+        let p = |name: &str| format!("{dir}/{name}");
+        // Primer plano: verde croma con un cuadrado rojo en el centro.
+        // Fondo: azul liso. Tras el croma, fuera del cuadrado debe verse azul.
+        let green = p("chroma-fg.mp4");
+        let blue = p("chroma-bg.mp4");
+        for (file, filter) in [
+            (&green, "color=c=0x00b140:s=320x240:r=25:d=2,drawbox=x=130:y=90:w=60:h=60:color=red:t=fill"),
+            (&blue, "color=c=blue:s=320x240:r=25:d=2"),
+        ] {
+            let ok = std::process::Command::new(&ffmpeg)
+                .args(["-v", "error", "-y", "-f", "lavfi", "-i", filter, "-c:v", "libx264", "-pix_fmt", "yuv420p", file])
+                .status()
+                .expect("generar el clip de prueba");
+            assert!(ok.success());
+        }
+
+        let out = p("chroma-out.mp4");
+        let plan = ExportPlan {
+            output: out.clone(),
+            width: 320,
+            height: 240,
+            fps: 25.0,
+            video: vec![ExportClip {
+                chroma: Some("format=yuva420p,chromakey=0x00b140:0.3:0.08".into()),
+                ..clip(&green, 0.0, 2.0, 0.0, false)
+            }],
+            audio: vec![],
+            background: vec![clip(&blue, 0.0, 2.0, 0.0, false)],
+            encoder: "x264".into(),
+            overlays: vec![],
+        };
+        let status = std::process::Command::new(&ffmpeg)
+            .args(build_args(&plan, Encoder::X264))
+            .status()
+            .expect("ejecutar ffmpeg");
+        assert!(status.success(), "ffmpeg falló montando el croma");
+
+        // Un píxel de la esquina (era verde) y otro del centro (era rojo).
+        let pixel = |crop: &str| -> Vec<u8> {
+            let o = std::process::Command::new(&ffmpeg)
+                .args(["-v", "error", "-ss", "1", "-i", &out, "-frames:v", "1", "-vf",
+                       &format!("crop={crop},scale=1:1"), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+                .output()
+                .expect("leer el píxel");
+            o.stdout
+        };
+        let esquina = pixel("40:40:10:10");
+        let centro = pixel("30:30:145:105");
+        assert!(
+            esquina[2] > 120 && esquina[1] < 90,
+            "la esquina debería ser azul (el fondo), y es {esquina:?}"
+        );
+        assert!(
+            centro[0] > 120 && centro[2] < 90,
+            "el centro debería seguir siendo rojo (el sujeto), y es {centro:?}"
+        );
     }
 
     /// Prueba de humo del grafo de filtros con el ffmpeg del sistema. Se activa con
@@ -583,6 +707,7 @@ mod tests {
                 clip(&p("mute.mp4"), 0.0, 1.5, 3.5, false),
             ],
             audio: vec![clip(&p("music.mp3"), 0.0, 5.0, 1.5, true)],
+            background: vec![clip(&p("clipB.mp4"), 0.0, 3.0, 0.0, false)],
             encoder: "x264".into(),
             overlays: vec![ExportOverlay { pattern, fps: 30.0, start: 1.0 }],
         };

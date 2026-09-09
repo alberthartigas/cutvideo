@@ -16,6 +16,7 @@
   import AudioPanel from "$lib/components/panels/AudioPanel.svelte";
   import TextPanel from "$lib/components/panels/TextPanel.svelte";
   import SubtitlesPanel from "$lib/components/panels/SubtitlesPanel.svelte";
+  import PatchesPanel from "$lib/components/panels/PatchesPanel.svelte";
   import EffectsPanel from "$lib/components/panels/EffectsPanel.svelte";
   import TransitionsPanel from "$lib/components/panels/TransitionsPanel.svelte";
   import AutoEditPanel from "$lib/components/panels/AutoEditPanel.svelte";
@@ -243,6 +244,8 @@
           <TextPanel />
         {:else if ui.panel === "subtitles"}
           <SubtitlesPanel />
+        {:else if ui.panel === "patches"}
+          <PatchesPanel />
         {:else if ui.panel === "effects"}
           <EffectsPanel />
         {:else if ui.panel === "transitions"}

@@ -3,9 +3,14 @@ import { DEFAULT_TEXT, TEXT_DEFAULT_DURATION, type TextData } from "$lib/text/st
 import type { FrameSize } from "$lib/text/layout";
 import { DEFAULT_TRANSITION_DURATION, TRANSITION_MAX, TRANSITION_MIN } from "$lib/transitions/presets";
 import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffects } from "$lib/effects/presets";
+import { DEFAULT_CHROMA, type ChromaKey } from "$lib/effects/chroma";
+import { DEFAULT_PATCH, type PatchData } from "$lib/patches/types";
+
+/** Duración por defecto de un parche recién puesto (s). */
+const PATCH_DEFAULT_DURATION = 4;
 
 export type { FrameSize };
-export type TrackKind = "video" | "audio" | "text";
+export type TrackKind = "video" | "audio" | "text" | "image";
 
 export interface Clip {
   id: string;
@@ -28,6 +33,8 @@ export interface Clip {
   transition?: { id: string; duration: number };
   /** Filtro de color y ajustes del clip. */
   effects?: ClipEffects;
+  /** Solo en clips de imagen (kind === "image"): colocación y seguimiento. */
+  patch?: PatchData;
 }
 
 export interface ActiveTransition {
@@ -100,7 +107,9 @@ class ProjectStore {
   tracks = $state<Track[]>([
     { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
     { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
+    { id: "p1", kind: "image", name: "P1", magnetic: false, clips: [] },
     { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
+    { id: "f1", kind: "video", name: "F1", magnetic: false, clips: [] },
     { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
   ]);
   playhead = $state(0);
@@ -120,12 +129,16 @@ class ProjectStore {
     this.tracks.reduce((max, t) => t.clips.reduce((m, c) => Math.max(m, clipEnd(c)), max), 0),
   );
   clipCount = $derived(this.tracks.reduce((n, t) => n + t.clips.length, 0));
-  videoTrack = $derived(this.tracks.find((t) => t.kind === "video")!);
-  audioTrack = $derived(this.tracks.find((t) => t.kind === "audio")!);
+  videoTrack = $derived(this.tracks.find((t) => t.id === "v1")!);
+  audioTrack = $derived(this.tracks.find((t) => t.id === "a1")!);
   /** Pista de títulos (T1). */
   textTrack = $derived(this.tracks.find((t) => t.id === "t1")!);
   /** Pista de subtítulos (S1). */
   subtitleTrack = $derived(this.tracks.find((t) => t.id === "s1")!);
+  /** Pista de parches: imágenes y stickers encima del vídeo (P1). */
+  patchTrack = $derived(this.tracks.find((t) => t.id === "p1")!);
+  /** Pista de fondo, por debajo del vídeo (F1): lo que se ve tras la pantalla verde. */
+  backgroundTrack = $derived(this.tracks.find((t) => t.id === "f1")!);
   /** Todas las pistas de texto, de abajo arriba en el timeline (la primera se pinta encima). */
   textTracks = $derived(this.tracks.filter((t) => t.kind === "text"));
   /** Clips de texto de todas las pistas, en el orden en que se pintan (subtítulos debajo de los títulos). */
@@ -247,7 +260,9 @@ class ProjectStore {
     this.tracks = [
       { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
       { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
+      { id: "p1", kind: "image", name: "P1", magnetic: false, clips: [] },
       { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
+      { id: "f1", kind: "video", name: "F1", magnetic: false, clips: [] },
       { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
     ];
     this.playhead = 0;
@@ -272,15 +287,15 @@ class ProjectStore {
 
   /** Añade un archivo al timeline: vídeo → V1, audio → A1. `at` = instante destino (por defecto, al final). */
   addClip(info: MediaInfo, at?: number): Clip | null {
+    // Las imágenes no traen duración: se les da una por defecto como parche.
+    if (info.isImage) return this.addPatch(info, at);
     if (!(info.durationSec > 0)) return null;
-    const kind: TrackKind = info.video ? "video" : "audio";
-    const track = this.tracks.find((t) => t.kind === kind);
-    if (!track) return null;
+    const track = info.video ? this.videoTrack : this.audioTrack;
     const clip: Clip = {
       id: newId(),
       mediaPath: info.path,
       name: info.fileName,
-      kind,
+      kind: info.video ? "video" : "audio",
       sourceDuration: info.durationSec,
       fps: info.video?.fps || 30,
       start: 0,
@@ -299,6 +314,61 @@ class ProjectStore {
     }
     this.selectedId = clip.id;
     return clip;
+  }
+
+  /** Pone un vídeo o una imagen en la pista de fondo (F1), por detrás del vídeo. */
+  addBackground(info: MediaInfo, at = this.playhead): Clip | null {
+    if (!info.video) return null;
+    const track = this.backgroundTrack;
+    // Una imagen fija de fondo dura lo mismo que un parche por defecto.
+    const duration = info.isImage ? PATCH_DEFAULT_DURATION : info.durationSec;
+    const clip: Clip = {
+      id: newId(),
+      mediaPath: info.path,
+      name: info.fileName,
+      kind: "video",
+      sourceDuration: info.isImage ? Number.POSITIVE_INFINITY : info.durationSec,
+      fps: info.video.fps || 30,
+      start: 0,
+      in: 0,
+      out: duration,
+    };
+    this.commit();
+    clip.start = this.#freeStart(track, duration, at);
+    track.clips.push(clip);
+    this.#sort(track);
+    this.selectedId = clip.id;
+    return clip;
+  }
+
+  /** Añade una imagen o sticker como parche sobre el vídeo. */
+  addPatch(info: MediaInfo, at = this.playhead): Clip {
+    const track = this.patchTrack;
+    const clip: Clip = {
+      id: newId(),
+      mediaPath: info.path,
+      name: info.fileName,
+      kind: "image",
+      sourceDuration: Number.POSITIVE_INFINITY,
+      fps: 30,
+      start: 0,
+      in: 0,
+      out: PATCH_DEFAULT_DURATION,
+      patch: { ...DEFAULT_PATCH },
+    };
+    this.commit();
+    clip.start = this.#freeStart(track, PATCH_DEFAULT_DURATION, at);
+    track.clips.push(clip);
+    this.#sort(track);
+    this.selectedId = clip.id;
+    return clip;
+  }
+
+  /** Cambia la colocación de un parche. */
+  updatePatch(id: string, patch: Partial<PatchData>) {
+    const ref = this.findClip(id);
+    if (!ref?.clip.patch) return;
+    Object.assign(ref.clip.patch, patch);
   }
 
   /** Añade un clip de texto (3 s) en `at` (por defecto el playhead) o en el hueco libre más cercano. */
@@ -428,6 +498,15 @@ class ProjectStore {
     ref.clip.effects = fx.preset === null && isDefaultAdjust(fx.adjust) ? undefined : fx;
   }
 
+  /** Enciende, apaga o ajusta la pantalla verde de un clip. */
+  setChroma(clipId: string, patch: Partial<ChromaKey>) {
+    const ref = this.findClip(clipId);
+    if (!ref || ref.clip.kind === "text") return;
+    const fx = ref.clip.effects ?? { preset: null, adjust: { ...DEFAULT_ADJUSTMENTS } };
+    fx.chroma = { ...DEFAULT_CHROMA, ...fx.chroma, ...patch };
+    ref.clip.effects = fx;
+  }
+
   /** Cambia los ajustes manuales de color del clip. */
   setAdjust(clipId: string, patch: Partial<Adjustments>) {
     const ref = this.findClip(clipId);
@@ -508,8 +587,8 @@ class ProjectStore {
     const { track, clip, index } = ref;
     const prev = track.clips[index - 1];
     const floor = !track.magnetic && prev ? clipEnd(prev) : 0;
-    if (clip.kind === "text") {
-      // Los textos no tienen "entrada": mover el borde izquierdo acorta la duración por delante.
+    if (clip.kind === "text" || clip.kind === "image") {
+      // Textos y parches no tienen "entrada": mover el borde izquierdo acorta la duración por delante.
       const newStart = clamp(clip.start + (newIn - clip.in), floor, clipEnd(clip) - MIN_CLIP);
       clip.out -= newStart - clip.start;
       clip.start = newStart;
@@ -562,7 +641,9 @@ class ProjectStore {
       const right: Clip =
         clip.kind === "text"
           ? { ...clip, id: newId(), text: { ...clip.text! }, in: 0, out: clip.out - offset, start: t }
-          : { ...clip, id: newId(), in: clip.in + offset, start: t };
+          : clip.kind === "image"
+            ? { ...clip, id: newId(), patch: { ...clip.patch! }, in: 0, out: clip.out - offset, start: t }
+            : { ...clip, id: newId(), in: clip.in + offset, start: t };
       clip.out = clip.in + offset;
       // La transición hacia el siguiente clip se queda con la parte derecha.
       if (clip.transition) clip.transition = undefined;

@@ -3,10 +3,12 @@
   import {
     Captions,
     Film,
+    Image,
     Maximize2,
     Music,
     Redo2,
     Scissors,
+    Sticker,
     Trash2,
     Type,
     Undo2,
@@ -19,8 +21,10 @@
   import TimelineClip from "./TimelineClip.svelte";
 
   const RULER_H = 24;
-  const TRACK_H: Record<TrackKind, number> = { text: 36, video: 56, audio: 40 };
-  const trackIcons = { text: Type, video: Film, audio: Music } as const;
+  const TRACK_H: Record<TrackKind, number> = { text: 36, image: 40, video: 56, audio: 40 };
+  const trackIcons = { text: Type, image: Sticker, video: Film, audio: Music } as const;
+  /** Iconos propios de las pistas que no se distinguen por su tipo. */
+  const specialIcons: Record<string, typeof Film> = { s1: Captions, f1: Image };
 
   /**
    * Los clips se pintan en orden estable (por id), no por posición: si el DOM se
@@ -199,12 +203,12 @@
     </div>
   </div>
 
-  <div class="grid min-h-0 flex-1 grid-cols-[44px_1fr]">
-    <!-- Cabeceras de pista (fuera del scroll horizontal) -->
+  <div class="grid min-h-0 flex-1 grid-cols-[44px_1fr] overflow-y-auto">
+    <!-- Cabeceras de pista (fuera del scroll horizontal, pero suben y bajan con él) -->
     <div class="border-r border-border bg-panel-2">
-      <div class="border-b border-border" style="height:{RULER_H}px"></div>
+      <div class="sticky top-0 z-10 border-b border-border bg-panel-2" style="height:{RULER_H}px"></div>
       {#each project.tracks as track (track.id)}
-        {@const Icon = track.id === "s1" ? Captions : trackIcons[track.kind]}
+        {@const Icon = specialIcons[track.id] ?? trackIcons[track.kind]}
         <div
           class="flex flex-col items-center justify-center gap-0.5 border-b border-border text-[10px] font-semibold text-muted"
           style="height:{TRACK_H[track.kind]}px"
@@ -228,7 +232,7 @@
         style="width:{contentWidth}px"
         role="presentation"
       >
-        <div class="ruler" style="height:{RULER_H}px">
+        <div class="ruler sticky top-0 z-10" style="height:{RULER_H}px">
           {#each marks as mark (mark.t)}
             <div class="mark" class:major={mark.label !== null} style="left:{mark.x}px">
               {#if mark.label !== null}<span>{mark.label}</span>{/if}

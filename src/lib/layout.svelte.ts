@@ -5,7 +5,7 @@ export const LAYOUT_DEFAULTS = {
   /** Ancho del panel de la sección activa (Medios, Efectos, Transiciones…). */
   panelWidth: 248,
   inspectorWidth: 300,
-  timelineHeight: 240,
+  timelineHeight: 300,
 };
 
 export const LAYOUT_LIMITS = {

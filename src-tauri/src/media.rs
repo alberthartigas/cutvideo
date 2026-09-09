@@ -20,6 +20,8 @@ pub struct MediaInfo {
     pub audio: Option<AudioStream>,
     pub video_stream_count: usize,
     pub audio_stream_count: usize,
+    /// true para PNG/JPG/WebP/GIF: son parches, no clips de vídeo.
+    pub is_image: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -246,17 +248,24 @@ pub async fn probe(app: &AppHandle, path: &str) -> Result<MediaInfo, String> {
         .or_else(|| std::fs::metadata(file).ok().map(|m| m.len()))
         .unwrap_or(0);
 
+    // Una imagen es un contenedor de imagen con un solo frame y sin audio.
+    const IMAGE_FORMATS: &[&str] = &[
+        "png_pipe", "image2", "jpeg_pipe", "webp_pipe", "webp", "gif", "bmp_pipe", "tiff_pipe",
+    ];
+    let container = raw.format.format_name.clone().unwrap_or_else(|| "desconocido".into());
+    let is_image = audio_streams.is_empty()
+        && video_streams.len() == 1
+        && container
+            .split(',')
+            .any(|f| IMAGE_FORMATS.contains(&f.trim()));
+
     Ok(MediaInfo {
         path: path.to_string(),
         file_name: file
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string()),
-        container: raw
-            .format
-            .format_name
-            .clone()
-            .unwrap_or_else(|| "desconocido".into()),
+        container,
         duration_sec,
         size_bytes,
         bit_rate: parse_u64(&raw.format.bit_rate),
@@ -264,5 +273,6 @@ pub async fn probe(app: &AppHandle, path: &str) -> Result<MediaInfo, String> {
         audio,
         video_stream_count: video_streams.len(),
         audio_stream_count: audio_streams.len(),
+        is_image,
     })
 }

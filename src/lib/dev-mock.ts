@@ -14,6 +14,7 @@ function fake(
   durationSec: number,
   video: { width: number; height: number; fps: number } | null,
   audio: boolean,
+  isImage = false,
 ): MediaInfo {
   return {
     path: `${DIR}/${fileName}`,
@@ -35,6 +36,7 @@ function fake(
       : null,
     videoStreamCount: video ? 1 : 0,
     audioStreamCount: audio ? 1 : 0,
+    isImage,
   };
 }
 
@@ -43,6 +45,9 @@ const FILES: MediaInfo[] = [
   fake("clipB.mp4", 3, { width: 1920, height: 1080, fps: 25 }, true),
   fake("mute.mp4", 2, { width: 640, height: 480, fps: 30 }, false),
   fake("music.mp3", 6, null, true),
+  fake("sticker.png", 0, { width: 512, height: 512, fps: 0 }, false, true),
+  fake("verde.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
+  fake("fondo.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
