@@ -2,8 +2,8 @@
   import { FlipHorizontal2, Image as ImageIcon, Plus, Trash2 } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project, type Clip } from "$lib/project.svelte";
-  import { IMAGE_EXTENSIONS, pickMediaFiles, probeMedia, type MediaInfo } from "$lib/tauri/media";
-  import { mediaSrc } from "$lib/tauri/media";
+  import { IMAGE_EXTENSIONS, mediaSrc, pickImageFiles, probeMedia } from "$lib/tauri/media";
+  import { BUILTIN_STICKERS, builtinPath, STICKER_GROUPS } from "$lib/patches/builtin";
   import { DEFAULT_PATCH } from "$lib/patches/types";
   import TrackObjectButton from "../TrackObjectButton.svelte";
 
@@ -15,14 +15,27 @@
   let selected = $derived(project.selected?.clip.kind === "image" ? project.selected.clip : null);
   let patch = $derived(selected?.patch ?? DEFAULT_PATCH);
 
+  /** Grupo de stickers abierto en la galería. */
+  let group = $state(STICKER_GROUPS[0]);
+  let shown = $derived(BUILTIN_STICKERS.filter((s) => s.group === group));
+
   async function importImages() {
     importing = true;
     error = null;
     try {
-      for (const path of await pickMediaFiles()) {
+      const paths = await pickImageFiles();
+      let añadidos = 0;
+      for (const path of paths) {
         if (!IMAGE_EXTENSIONS.some((e) => path.toLowerCase().endsWith(`.${e}`))) continue;
-        if (project.media.some((m) => m.path === path)) continue;
+        if (project.media.some((m) => m.path === path)) {
+          añadidos++;
+          continue;
+        }
         project.addMedia(await probeMedia(path));
+        añadidos++;
+      }
+      if (paths.length > 0 && añadidos === 0) {
+        error = "Esos archivos no son imágenes que la app pueda usar.";
       }
     } catch (e) {
       error = String(e);
@@ -62,8 +75,28 @@
     <p class="mb-2 rounded-md bg-red-500/10 px-2 py-1.5 text-xs text-red-500">{error}</p>
   {/if}
 
+  <!-- Galería que viene con la app -->
+  <div class="mb-2 flex flex-wrap gap-1">
+    {#each STICKER_GROUPS as g (g)}
+      <button class="chip" class:active={group === g} onclick={() => (group = g)}>{g}</button>
+    {/each}
+  </div>
+  <div class="mb-3 grid grid-cols-4 gap-1.5">
+    {#each shown as st (st.id)}
+      <button
+        class="tile"
+        title="Poner «{st.name}» en el playhead"
+        onclick={() => project.addPatch({ path: builtinPath(st.id), fileName: st.name })}
+      >
+        <img src={builtinPath(st.id).replace("builtin:", "")} alt={st.name} />
+      </button>
+    {/each}
+  </div>
+
+  <!-- Los que ha traído el usuario -->
   {#if images.length}
-    <div class="mb-3 grid grid-cols-3 gap-2">
+    <h3 class="mb-1.5 px-1 text-[11px] font-semibold tracking-wider text-muted uppercase">Tuyos</h3>
+    <div class="mb-3 grid grid-cols-4 gap-1.5">
       {#each images as img (img.path)}
         <button class="tile" title="Poner «{img.fileName}» en el playhead" onclick={() => project.addClip(img)}>
           <img src={mediaSrc(img.path)} alt={img.fileName} />
@@ -71,9 +104,9 @@
       {/each}
     </div>
   {:else}
-    <p class="mb-3 rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted">
-      <ImageIcon size={20} class="mx-auto mb-2 opacity-50" />
-      Añade PNG, JPG, WebP o stickers y aparecerán aquí.
+    <p class="mb-3 flex items-center gap-2 rounded-lg border border-dashed border-border px-2.5 py-2 text-[11px] text-muted">
+      <ImageIcon size={16} class="shrink-0 opacity-50" />
+      Con «Añadir» traes tus propios PNG, JPG, WebP o stickers de WhatsApp.
     </p>
   {/if}
 
@@ -140,6 +173,21 @@
 </PanelShell>
 
 <style>
+  .chip {
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .chip:hover {
+    color: var(--text);
+  }
+  .chip.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+  }
   .tile {
     display: grid;
     aspect-ratio: 1;
@@ -149,7 +197,7 @@
     border-radius: 8px;
     background:
       repeating-conic-gradient(var(--panel-2) 0% 25%, var(--panel) 0% 50%) 50% / 12px 12px;
-    padding: 4px;
+    padding: 3px;
   }
   .tile:hover {
     border-color: var(--accent);

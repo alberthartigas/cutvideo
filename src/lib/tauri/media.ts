@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { BUILTIN_PREFIX } from "$lib/patches/builtin";
 
 // Espejo de las structs de src-tauri/src/media.rs (serde rename_all = camelCase).
 export interface VideoStream {
@@ -60,6 +61,21 @@ export async function pickMediaFiles(): Promise<string[]> {
   return Array.isArray(result) ? result : [result];
 }
 
+/** Diálogo para elegir solo imágenes y stickers. */
+export async function pickImageFiles(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    directory: false,
+    title: "Añadir parches",
+    filters: [
+      { name: "Imágenes y stickers", extensions: IMAGE_EXTENSIONS },
+      { name: "Todos los archivos", extensions: ["*"] },
+    ],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
 export function probeMedia(path: string): Promise<MediaInfo> {
   return invoke<MediaInfo>("probe_media", { path });
 }
@@ -73,7 +89,9 @@ export function ffmpegVersion(): Promise<string> {
   return invoke<string>("ffmpeg_version");
 }
 
-/** URL `asset://` que el WebView puede usar en <video src>. */
+/** URL que el WebView puede usar en <video src> o <img src>. */
 export function mediaSrc(path: string): string {
+  // Los stickers que vienen con la app se sirven del propio bundle.
+  if (path.startsWith(BUILTIN_PREFIX)) return path.slice(BUILTIN_PREFIX.length);
   return convertFileSrc(path);
 }

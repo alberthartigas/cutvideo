@@ -353,7 +353,7 @@ class ProjectStore {
   }
 
   /** Añade una imagen o sticker como parche sobre el vídeo. */
-  addPatch(info: MediaInfo, at = this.playhead): Clip {
+  addPatch(info: { path: string; fileName: string }, at = this.playhead): Clip {
     const track = this.patchTrack;
     const clip: Clip = {
       id: newId(),
