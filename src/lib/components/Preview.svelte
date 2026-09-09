@@ -28,6 +28,11 @@
 
   let empty = $derived(project.clipCount === 0);
   let frame = $derived(project.frame);
+  let aspectLabel = $derived(
+    project.aspect === "original"
+      ? `${Math.round((frame.width / frame.height) * 100) / 100}:1`.replace("1.78:1", "16:9")
+      : project.aspect,
+  );
   // El frame del proyecto, encajado en el hueco disponible (letterbox), como hará el export.
   let scale = $derived(stageW && stageH ? Math.min(stageW / frame.width, stageH / frame.height) : 0);
   let viewW = $derived(Math.round(frame.width * scale));
@@ -240,10 +245,10 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <div class="relative min-h-0 flex-1 bg-black" bind:clientWidth={stageW} bind:clientHeight={stageH}>
+  <div class="stage relative min-h-0 flex-1" bind:clientWidth={stageW} bind:clientHeight={stageH}>
     {#if viewW > 0}
       <div
-        class="absolute overflow-hidden"
+        class="canvas absolute overflow-hidden"
         style="left:{Math.round((stageW - viewW) / 2)}px; top:{Math.round((stageH - viewH) / 2)}px; width:{viewW}px; height:{viewH}px"
       >
         <!-- svelte-ignore a11y_media_has_caption -->
@@ -276,9 +281,14 @@
       </div>
     {/if}
     <audio bind:this={audioEl} preload="auto"></audio>
-    {#if empty}
-      <p class="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">
-        Añade clips al timeline para ver el resultado
+    {#if empty && viewW > 0}
+      <!-- Dentro del lienzo, para que se vea la forma del formato elegido. -->
+      <p
+        class="pointer-events-none absolute flex flex-col items-center justify-center gap-1 px-4 text-center text-sm text-neutral-500"
+        style="left:{Math.round((stageW - viewW) / 2)}px; top:{Math.round((stageH - viewH) / 2)}px; width:{viewW}px; height:{viewH}px"
+      >
+        <span>Añade clips al timeline</span>
+        <span class="text-xs opacity-70">{aspectLabel} · {frame.width}×{frame.height}</span>
       </p>
     {/if}
   </div>
@@ -290,6 +300,27 @@
     </button>
     <span class="ml-2 font-mono text-xs tabular-nums">{formatDuration(project.playhead)}</span>
     <span class="font-mono text-xs tabular-nums text-muted">/ {formatDuration(project.duration)}</span>
-    <span class="ml-auto text-[11px] text-muted">{frame.width}×{frame.height}</span>
+    <span class="ml-auto text-[11px] text-muted">{aspectLabel} · {frame.width}×{frame.height}</span>
   </div>
 </div>
+
+<style>
+  /* El escenario es más claro que el lienzo: así se ve dónde acaba el vídeo
+     y qué forma tiene el formato elegido, aunque el proyecto esté vacío. */
+  .stage {
+    background:
+      repeating-conic-gradient(
+          color-mix(in srgb, var(--muted) 7%, transparent) 0% 25%,
+          transparent 0% 50%
+        )
+        50% / 16px 16px,
+      var(--track);
+  }
+  .canvas {
+    background: #000;
+    border-radius: 3px;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--muted) 45%, transparent),
+      0 8px 28px rgba(0, 0, 0, 0.35);
+  }
+</style>

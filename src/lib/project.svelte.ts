@@ -103,16 +103,21 @@ export function nearestSnap(value: number, points: number[], threshold: number):
   return best;
 }
 
-class ProjectStore {
-  media = $state<MediaInfo[]>([]);
-  tracks = $state<Track[]>([
+/** Las pistas del proyecto, en el orden en que se pintan (arriba tapa a abajo). */
+export function defaultTracks(): Track[] {
+  return [
     { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
     { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
     { id: "p1", kind: "image", name: "P1", magnetic: false, clips: [] },
     { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
     { id: "f1", kind: "video", name: "F1", magnetic: false, clips: [] },
     { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
-  ]);
+  ];
+}
+
+class ProjectStore {
+  media = $state<MediaInfo[]>([]);
+  tracks = $state<Track[]>(defaultTracks());
   playhead = $state(0);
   playing = $state(false);
   /** Píxeles por segundo. */
@@ -127,6 +132,18 @@ class ProjectStore {
   canUndo = $state(false);
   canRedo = $state(false);
 
+  /**
+   * Devuelve una pista por id. Nunca falla: si un proyecto guardado con una
+   * versión anterior no la trae, se crea vacía sobre la marcha.
+   */
+  #track(id: string): Track {
+    const found = this.tracks.find((t) => t.id === id);
+    if (found) return found;
+    const missing = defaultTracks().find((t) => t.id === id)!;
+    this.tracks = defaultTracks().map((def) => this.tracks.find((t) => t.id === def.id) ?? def);
+    return this.tracks.find((t) => t.id === id) ?? missing;
+  }
+
   #past: { tracks: Track[]; json: string }[] = [];
   #future: { tracks: Track[]; json: string }[] = [];
 
@@ -134,16 +151,16 @@ class ProjectStore {
     this.tracks.reduce((max, t) => t.clips.reduce((m, c) => Math.max(m, clipEnd(c)), max), 0),
   );
   clipCount = $derived(this.tracks.reduce((n, t) => n + t.clips.length, 0));
-  videoTrack = $derived(this.tracks.find((t) => t.id === "v1")!);
-  audioTrack = $derived(this.tracks.find((t) => t.id === "a1")!);
+  videoTrack = $derived(this.#track("v1"));
+  audioTrack = $derived(this.#track("a1"));
   /** Pista de títulos (T1). */
   textTrack = $derived(this.tracks.find((t) => t.id === "t1")!);
   /** Pista de subtítulos (S1). */
-  subtitleTrack = $derived(this.tracks.find((t) => t.id === "s1")!);
+  subtitleTrack = $derived(this.#track("s1"));
   /** Pista de parches: imágenes y stickers encima del vídeo (P1). */
-  patchTrack = $derived(this.tracks.find((t) => t.id === "p1")!);
+  patchTrack = $derived(this.#track("p1"));
   /** Pista de fondo, por debajo del vídeo (F1): lo que se ve tras la pantalla verde. */
-  backgroundTrack = $derived(this.tracks.find((t) => t.id === "f1")!);
+  backgroundTrack = $derived(this.#track("f1"));
   /** Todas las pistas de texto, de abajo arriba en el timeline (la primera se pinta encima). */
   textTracks = $derived(this.tracks.filter((t) => t.kind === "text"));
   /** Clips de texto de todas las pistas, en el orden en que se pintan (subtítulos debajo de los títulos). */
@@ -266,14 +283,7 @@ class ProjectStore {
   /** Deja el proyecto en blanco (proyecto nuevo). */
   reset() {
     this.media = [];
-    this.tracks = [
-      { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
-      { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
-      { id: "p1", kind: "image", name: "P1", magnetic: false, clips: [] },
-      { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
-      { id: "f1", kind: "video", name: "F1", magnetic: false, clips: [] },
-      { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
-    ];
+    this.tracks = defaultTracks();
     this.playhead = 0;
     this.playing = false;
     this.zoom = 60;

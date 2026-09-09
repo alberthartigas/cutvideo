@@ -11,7 +11,7 @@ import {
   type ProjectSummary,
 } from "$lib/tauri/projects";
 import type { MediaInfo } from "$lib/tauri/media";
-import type { Track } from "$lib/project.svelte";
+import { defaultTracks, type Track } from "$lib/project.svelte";
 
 /** Empaqueta el estado actual del editor para guardarlo. */
 function snapshotProject(id: string, name: string, createdAt: number): ProjectFile {
@@ -34,7 +34,10 @@ function snapshotProject(id: string, name: string, createdAt: number): ProjectFi
 function restoreProject(file: ProjectFile) {
   project.reset();
   project.media = file.data.media ?? [];
-  if (file.data.tracks?.length) project.tracks = file.data.tracks;
+  // Un proyecto guardado con una versión anterior puede no traer todas las
+  // pistas: se conservan las suyas y se añaden vacías las que falten.
+  const saved = file.data.tracks ?? [];
+  project.tracks = defaultTracks().map((def) => saved.find((t) => t.id === def.id) ?? def);
   if (file.data.aspect) project.aspect = file.data.aspect as typeof project.aspect;
   if (file.data.fit) project.fit = file.data.fit as typeof project.fit;
 }
