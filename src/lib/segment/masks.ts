@@ -19,7 +19,12 @@ export interface MaskSequence {
 /** El modelo trabaja a 256 px: por encima de esto la máscara ya no gana detalle. */
 const MASK_LONG_SIDE = 512;
 
-function wait(el: HTMLVideoElement, event: string, ms = 8000): Promise<void> {
+/**
+ * Espera a un evento del vídeo. Con `estricto` un plantón es un error (no se
+ * puede recortar lo que no carga); sin él seguimos con el fotograma que haya,
+ * que es lo suyo cuando una búsqueda concreta se atasca.
+ */
+function wait(el: HTMLVideoElement, event: string, ms: number, estricto = false): Promise<void> {
   return new Promise((resolve, reject) => {
     const limpiar = () => {
       el.removeEventListener(event, ok);
@@ -28,7 +33,7 @@ function wait(el: HTMLVideoElement, event: string, ms = 8000): Promise<void> {
     };
     const ok = () => (limpiar(), resolve());
     const fallo = () => (limpiar(), reject(new Error("No se pudo leer el vídeo del recorte")));
-    const timer = setTimeout(ok, ms); // Si el vídeo se atasca seguimos con lo que haya.
+    const timer = setTimeout(estricto ? fallo : ok, ms);
     el.addEventListener(event, ok, { once: true });
     el.addEventListener("error", fallo, { once: true });
   });
@@ -90,9 +95,10 @@ export async function renderCutoutMasks(
 
       video.src = mediaSrc(clip.mediaPath);
       video.load();
-      await wait(video, "loadeddata");
+      await wait(video, "loadeddata", 15000, true);
 
       const frames = Math.ceil((clip.out - clip.in) * fps);
+      let conSilueta = 0;
       for (let i = 0; i < frames; i++) {
         if (isCancelled()) throw new Error("Exportación cancelada");
         video.currentTime = clip.in + (i + 0.5) / fps;
@@ -101,6 +107,7 @@ export async function renderCutoutMasks(
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, mw, mh);
         if (mask) {
+          conSilueta++;
           // Gris = alfa. Mismo suavizado que el shader del preview.
           if (fuente.width !== mask.width || fuente.height !== mask.height) {
             fuente.width = mask.width;
@@ -127,6 +134,12 @@ export async function renderCutoutMasks(
           headers: { "x-segment": String(segmento), "x-frame": String(i) },
         });
         onProgress(++hechos / totalFrames);
+      }
+      // Sin una sola silueta la capa saldría invisible: mejor avisar.
+      if (conSilueta === 0) {
+        throw new Error(
+          `No se pudo recortar "${clip.name}": el segmentador no devolvió ninguna silueta.`,
+        );
       }
       out.set(clip.id, { pattern: `${base}/${segmento}/%05d.png`, fps, start: clip.start });
     }

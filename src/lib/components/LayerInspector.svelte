@@ -11,6 +11,9 @@
   const set = (p: Parameters<typeof project.updateLayout>[1]) => project.updateLayout(clip.id, p);
   const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
 
+  // El recorte necesita leer fotogramas: en una imagen fija no aplica.
+  let esImagen = $derived(project.mediaOf(clip)?.isImage === true);
+
   let activo = $derived(
     LAYOUT_PRESETS.find(
       (p) =>
@@ -55,35 +58,37 @@
     </label>
   </div>
 
-  <h3 class="mt-3 mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
-    <Scissors size={12} /> Recortar persona
-  </h3>
-  <label class="flex items-center gap-2">
-    <input
-      type="checkbox"
-      class="accent-accent"
-      checked={layout.cutout}
-      onchange={(e) => { project.commit(); set({ cutout: e.currentTarget.checked }); }}
-    />
-    <span>Quitar el fondo y dejar solo a la persona</span>
-  </label>
-  {#if layout.cutout}
-    {#if segmenter.error}
-      <p class="mt-1 flex gap-1 text-[11px] text-red-500">
-        <TriangleAlert size={12} class="mt-0.5 shrink-0" />{segmenter.error}
-      </p>
-    {:else if !segmenter.ready}
-      <p class="mt-1 flex items-center gap-1.5 text-[11px] text-muted">
-        <LoaderCircle size={11} class="animate-spin" /> Preparando el recorte…
+  {#if !esImagen}
+    <h3 class="mt-3 mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">
+      <Scissors size={12} /> Recortar persona
+    </h3>
+    <label class="flex items-center gap-2">
+      <input
+        type="checkbox"
+        class="accent-accent"
+        checked={layout.cutout}
+        onchange={(e) => { project.commit(); set({ cutout: e.currentTarget.checked }); }}
+      />
+      <span>Quitar el fondo y dejar solo a la persona</span>
+    </label>
+    {#if layout.cutout}
+      {#if segmenter.error}
+        <p class="mt-1 flex gap-1 text-[11px] text-red-500">
+          <TriangleAlert size={12} class="mt-0.5 shrink-0" />{segmenter.error}
+        </p>
+      {:else if !segmenter.ready}
+        <p class="mt-1 flex items-center gap-1.5 text-[11px] text-muted">
+          <LoaderCircle size={11} class="animate-spin" /> Preparando el recorte…
+        </p>
+      {/if}
+      <label class="row mt-1.5"><span>Borde</span>
+        <input type="range" min="0.05" max="1" step="0.02" value={layout.feather}
+          onpointerdown={() => project.commit()} oninput={(e) => set({ feather: num(e) })} />
+      </label>
+      <p class="mt-1 text-[10px] text-muted">
+        Funciona con personas. Si el fondo es liso, la pantalla verde recorta más fino.
       </p>
     {/if}
-    <label class="row mt-1.5"><span>Borde</span>
-        <input type="range" min="0.05" max="1" step="0.02" value={layout.feather}
-        onpointerdown={() => project.commit()} oninput={(e) => set({ feather: num(e) })} />
-    </label>
-    <p class="mt-1 text-[10px] text-muted">
-      Funciona con personas. Si el fondo es liso, la pantalla verde recorta más fino.
-    </p>
   {/if}
 </div>
 
