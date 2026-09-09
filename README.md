@@ -74,10 +74,7 @@ clave privada del autor, y comprueba la firma con la pública que lleva dentro
 # La clave privada se generó con `npx tauri signer generate` y vive fuera del
 # repositorio. Si se pierde, los usuarios ya instalados dejan de recibir
 # actualizaciones y hay que reinstalar a mano.
-export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.tauri/cutvideo.key"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-
-scripts/release.sh 0.2.0
+scripts/release.sh 0.2.0   # coge la clave de ~/.tauri/cutvideo.key
 ```
 
 El script sube la versión en los tres manifiestos, compila, genera el

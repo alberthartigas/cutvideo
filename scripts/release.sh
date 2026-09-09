@@ -5,7 +5,7 @@
 #   scripts/release.sh 0.2.0
 #
 # Necesita `gh auth login` hecho y la clave de firma del actualizador:
-#   export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.tauri/cutvideo.key"
+#   export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/cutvideo.key)"
 #   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,9 +15,14 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Uso: scripts/release.sh <versión>   (por ejemplo 0.2.0)" >&2
   exit 1
 fi
-if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-  echo "✗ Falta la clave de firma. Exporta TAURI_SIGNING_PRIVATE_KEY_PATH." >&2
-  exit 1
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  if [[ -f "$HOME/.tauri/cutvideo.key" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/.tauri/cutvideo.key")"
+    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+  else
+    echo "✗ Falta la clave de firma del actualizador (TAURI_SIGNING_PRIVATE_KEY)." >&2
+    exit 1
+  fi
 fi
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "✗ Hay cambios sin guardar. Haz commit antes de publicar." >&2
