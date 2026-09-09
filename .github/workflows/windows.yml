@@ -38,12 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 24 trae npm 11. Con npm 10 (el de Node 22) `npm ci` se atraganta
-      # con las dependencias opcionales de otras plataformas que hay en el lock.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -67,7 +64,18 @@ jobs:
           Copy-Item $bin.FullName "src-tauri/binaries/ffmpeg-${{ matrix.target }}.exe"
           Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "src-tauri/binaries/ffprobe-${{ matrix.target }}.exe"
 
-      - run: npm ci
+      # Aquí no se usa `npm ci`, y no es por pereza: el package-lock.json se
+      # genera en el Mac del autor y npm no sabe rehacer las dependencias
+      # nativas opcionales para otra plataforma (npm/cli#4828). Con el lock
+      # puesto, `npm ci` acaba en un escueto "Invalid Version:" o instala unos
+      # binarios de rolldown y tailwind que no arrancan en Windows. Borrando el
+      # lock, npm resuelve los correctos. Se pierde el pinning exacto de
+      # versiones a cambio de que la compilación funcione.
+      - name: Instalar dependencias
+        shell: pwsh
+        run: |
+          Remove-Item package-lock.json -ErrorAction SilentlyContinue
+          npm install --no-audit --no-fund
 
       - name: Compilar y subir a la release
         uses: tauri-apps/tauri-action@v0
