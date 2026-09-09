@@ -60,6 +60,8 @@
     void project.tracks.map((t) => t.clips.length).join();
     void project.clipCount;
     void project.duration;
+    void project.aspect;
+    void project.fit;
     session.touch();
   });
 

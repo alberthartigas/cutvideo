@@ -86,8 +86,15 @@ pub struct ExportPlan {
     pub background: Vec<ExportClip>,
     /// "auto" (hardware si lo hay) o "x264".
     pub encoder: String,
+    /// "cover" recorta lo que sobra; "contain" deja franjas.
+    #[serde(default = "default_fit")]
+    pub fit: String,
     #[serde(default)]
     pub overlays: Vec<ExportOverlay>,
+}
+
+fn default_fit() -> String {
+    "cover".into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +228,18 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         ]);
     }
 
+    // "Rellenar" agranda y recorta el sobrante; "Encajar" reduce y rellena con franjas.
+    let encaje = if plan.fit == "contain" {
+        format!(
+            "scale={w}:{h}:force_original_aspect_ratio=decrease:flags=bicubic,\
+             pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+        )
+    } else {
+        format!(
+            "scale={w}:{h}:force_original_aspect_ratio=increase:flags=bicubic,crop={w}:{h}"
+        )
+    };
+
     let mut filters: Vec<String> = Vec::new();
     for (i, c) in plan.video.iter().enumerate() {
         // Todos los segmentos al mismo tamaño/fps/formato para poder concatenarlos.
@@ -229,9 +248,7 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         let chroma = safe_chroma(&c.chroma).map(|f| format!(",{f}")).unwrap_or_default();
         let out_fmt = if chroma.is_empty() { "format=yuv420p" } else { "format=yuva420p" };
         filters.push(format!(
-            "[{i}:v]setpts=PTS-STARTPTS,\
-             scale={w}:{h}:force_original_aspect_ratio=decrease:flags=bicubic,\
-             pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1,fps={fps}{fx}{chroma},{out_fmt}[v{i}]"
+            "[{i}:v]setpts=PTS-STARTPTS,{encaje},setsar=1,fps={fps}{fx}{chroma},{out_fmt}[v{i}]"
         ));
         if c.has_audio {
             filters.push(format!(
@@ -605,6 +622,63 @@ mod tests {
         }
     }
 
+    /// Cambiar la proporción debe producir un MP4 con esas dimensiones,
+    /// y "rellenar" no deja franjas negras donde "encajar" sí las deja.
+    #[test]
+    fn aspect_and_fit_change_the_output_frame() {
+        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("CUTVIDEO_FFMPEG"), std::env::var("CUTVIDEO_TEST_DIR")) else {
+            eprintln!("saltada: define CUTVIDEO_FFMPEG y CUTVIDEO_TEST_DIR");
+            return;
+        };
+        // Clip 16:9 con relleno naranja: en vertical hay que recortar o enmarcar.
+        let src = format!("{dir}/aspect-src.mp4");
+        let ok = std::process::Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i",
+                   "color=c=orange:s=640x360:r=25:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", &src])
+            .status()
+            .expect("generar el clip");
+        assert!(ok.success());
+
+        for (fit, esquina_negra) in [("cover", false), ("contain", true)] {
+            let out = format!("{dir}/aspect-{fit}.mp4");
+            let plan = ExportPlan {
+                output: out.clone(),
+                // 9:16 a partir de un 640x360: el lado corto manda.
+                width: 360,
+                height: 640,
+                fps: 25.0,
+                video: vec![clip(&src, 0.0, 1.0, 0.0, false)],
+                audio: vec![],
+                background: vec![],
+                encoder: "x264".into(),
+                fit: fit.into(),
+                overlays: vec![],
+            };
+            let status = std::process::Command::new(&ffmpeg)
+                .args(build_args(&plan, Encoder::X264))
+                .status()
+                .expect("ejecutar ffmpeg");
+            assert!(status.success(), "ffmpeg falló con fit={fit}");
+
+            let probe = std::process::Command::new(ffmpeg.replace("ffmpeg", "ffprobe"))
+                .args(["-v", "error", "-select_streams", "v:0", "-show_entries",
+                       "stream=width,height", "-of", "csv=p=0:s=x", &out])
+                .output()
+                .unwrap();
+            let dims = String::from_utf8_lossy(&probe.stdout).trim().to_string();
+            assert_eq!(dims, "360x640", "dimensiones con fit={fit}");
+
+            // Píxel de arriba del todo: con "encajar" es franja negra; con "rellenar", naranja.
+            let o = std::process::Command::new(&ffmpeg)
+                .args(["-v", "error", "-i", &out, "-frames:v", "1", "-vf",
+                       "crop=40:40:160:10,scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+                .output()
+                .unwrap();
+            let negro = o.stdout.iter().all(|&c| c < 40);
+            assert_eq!(negro, esquina_negra, "fit={fit} dio {:?} arriba", o.stdout);
+        }
+    }
+
     /// La pantalla verde debe dejar ver la pista de fondo por detrás.
     #[test]
     fn chroma_key_shows_the_background_track() {
@@ -641,6 +715,7 @@ mod tests {
             audio: vec![],
             background: vec![clip(&blue, 0.0, 2.0, 0.0, false)],
             encoder: "x264".into(),
+            fit: "cover".into(),
             overlays: vec![],
         };
         let status = std::process::Command::new(&ffmpeg)
@@ -709,6 +784,7 @@ mod tests {
             audio: vec![clip(&p("music.mp3"), 0.0, 5.0, 1.5, true)],
             background: vec![clip(&p("clipB.mp4"), 0.0, 3.0, 0.0, false)],
             encoder: "x264".into(),
+            fit: "cover".into(),
             overlays: vec![ExportOverlay { pattern, fps: 30.0, start: 1.0 }],
         };
         let expected = total_duration(&plan);

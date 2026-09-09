@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronLeft, Download, Monitor, Moon, Settings, Sun } from "@lucide/svelte";
   import Logo from "./Logo.svelte";
+  import AspectMenu from "./AspectMenu.svelte";
   import { THEME_MODES, theme } from "$lib/theme.svelte";
   import { project } from "$lib/project.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -35,6 +36,8 @@
       title={session.error ?? ""}>{estado}</span
     >
   </div>
+
+  <AspectMenu />
 
   <div class="seg shrink-0" role="radiogroup" aria-label="Tema">
     {#each THEME_MODES as m (m.value)}

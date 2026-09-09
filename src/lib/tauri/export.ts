@@ -43,6 +43,7 @@ export interface ExportPlan {
   audio: ExportClip[];
   background: ExportClip[];
   encoder: ExportEncoder;
+  fit: "cover" | "contain";
   overlays: ExportOverlay[];
 }
 
@@ -110,6 +111,7 @@ export function buildExportPlan(
     })),
     audio: project.audioTrack.clips.map(toClip),
     encoder,
+    fit: project.fit,
     overlays,
   };
 }

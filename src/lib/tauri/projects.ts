@@ -25,7 +25,7 @@ export interface ProjectFile {
   clipCount: number;
   durationSec: number;
   mediaPaths: string[];
-  data: { media: MediaInfo[]; tracks: Track[] };
+  data: { media: MediaInfo[]; tracks: Track[]; aspect?: string; fit?: string };
 }
 
 export const PROJECT_VERSION = 1;

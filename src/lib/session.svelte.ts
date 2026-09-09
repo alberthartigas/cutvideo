@@ -26,7 +26,7 @@ function snapshotProject(id: string, name: string, createdAt: number): ProjectFi
     clipCount: project.clipCount,
     durationSec: project.duration,
     mediaPaths: media.map((m) => m.path),
-    data: { media, tracks },
+    data: { media, tracks, aspect: project.aspect, fit: project.fit },
   };
 }
 
@@ -35,6 +35,8 @@ function restoreProject(file: ProjectFile) {
   project.reset();
   project.media = file.data.media ?? [];
   if (file.data.tracks?.length) project.tracks = file.data.tracks;
+  if (file.data.aspect) project.aspect = file.data.aspect as typeof project.aspect;
+  if (file.data.fit) project.fit = file.data.fit as typeof project.fit;
 }
 
 /**

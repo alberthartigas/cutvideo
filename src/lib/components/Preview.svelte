@@ -80,7 +80,10 @@
     if (!el.paused) el.pause();
   }
 
-  const BASE_STYLE = "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;";
+  // "Rellenar" recorta lo que sobra; "Encajar" deja franjas. Igual que el export.
+  let BASE_STYLE = $derived(
+    `position:absolute;inset:0;width:100%;height:100%;object-fit:${project.fit};`,
+  );
 
   /** Estilo del elemento: transición + filtro de color del clip. */
   function styleFor(clip: Clip, extra: string): string {
@@ -249,7 +252,11 @@
         <video bind:this={videoA} playsinline preload="auto" style="{BASE_STYLE}visibility:hidden"></video>
         <!-- svelte-ignore a11y_media_has_caption -->
         <video bind:this={videoB} playsinline preload="auto" style="{BASE_STYLE}visibility:hidden"></video>
-        <canvas bind:this={chromaCanvas} class="pointer-events-none absolute inset-0 h-full w-full object-contain" style="visibility:hidden"></canvas>
+        <canvas
+          bind:this={chromaCanvas}
+          class="pointer-events-none absolute inset-0 h-full w-full"
+          style="visibility:hidden;object-fit:{project.fit}"
+        ></canvas>
         <div
           bind:this={vignetteEl}
           class="pointer-events-none absolute inset-0"

@@ -5,6 +5,7 @@ import { DEFAULT_TRANSITION_DURATION, TRANSITION_MAX, TRANSITION_MIN } from "$li
 import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffects } from "$lib/effects/presets";
 import { DEFAULT_CHROMA, type ChromaKey } from "$lib/effects/chroma";
 import { DEFAULT_PATCH, type PatchData } from "$lib/patches/types";
+import { frameForAspect, type AspectId, type FitMode } from "$lib/aspect";
 
 /** Duración por defecto de un parche recién puesto (s). */
 const PATCH_DEFAULT_DURATION = 4;
@@ -116,6 +117,10 @@ class ProjectStore {
   playing = $state(false);
   /** Píxeles por segundo. */
   zoom = $state(60);
+  /** Proporción de salida elegida en la barra de título. */
+  aspect = $state<AspectId>("original");
+  /** Qué hacer cuando el vídeo no encaja en esa proporción. */
+  fit = $state<FitMode>("cover");
   selectedId = $state<string | null>(null);
   /** true mientras se reordena un clip arrastrándolo (los demás se animan al hacerle sitio). */
   reordering = $state(false);
@@ -144,7 +149,10 @@ class ProjectStore {
   /** Clips de texto de todas las pistas, en el orden en que se pintan (subtítulos debajo de los títulos). */
   textClips = $derived([...this.textTracks].reverse().flatMap((t) => t.clips));
   selected = $derived.by(() => (this.selectedId ? this.findClip(this.selectedId) : null));
-  /** Tamaño del frame del proyecto: el mayor de los clips de vídeo (ya rotados); 1080p si no hay. */
+  /**
+   * Tamaño del frame del proyecto: el mayor de los clips de vídeo (ya rotados),
+   * ajustado a la proporción elegida. 1080p si todavía no hay vídeo.
+   */
   frame = $derived.by((): FrameSize => {
     let best: FrameSize | null = null;
     for (const clip of this.videoTrack.clips) {
@@ -158,7 +166,8 @@ class ProjectStore {
       };
       if (!best || size.width * size.height > best.width * best.height) best = size;
     }
-    return best ?? DEFAULT_FRAME;
+    const source = best ?? DEFAULT_FRAME;
+    return { ...frameForAspect(source, this.aspect), fps: source.fps };
   });
 
   // ---- Consultas ----
@@ -268,6 +277,8 @@ class ProjectStore {
     this.playhead = 0;
     this.playing = false;
     this.zoom = 60;
+    this.aspect = "original";
+    this.fit = "cover";
     this.selectedId = null;
     this.#past = [];
     this.#future = [];
