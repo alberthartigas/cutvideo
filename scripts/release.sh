@@ -71,10 +71,11 @@ print(json.dumps({
 PY
 
 echo "→ Publicando en GitHub"
-git commit -am "Versión $VERSION"
+# Si la versión ya era esa, no hay nada que guardar.
+git diff --quiet || git commit -am "Versión $VERSION"
 git tag "v$VERSION"
 git push --follow-tags
 gh release create "v$VERSION" --title "CutVideo $VERSION" --notes "$NOTAS" \
   "$ARCHIVO" "$ARCHIVO.sig" "$BUNDLE/latest.json" \
-  "$BUNDLE"/dmg/*.dmg
+  "$BUNDLE"/dmg/CutVideo_*.dmg
 echo "✓ Publicada la $VERSION"
