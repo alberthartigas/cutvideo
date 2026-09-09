@@ -19,6 +19,8 @@ for bin in ffmpeg ffprobe; do
   fi
   dest="src-tauri/binaries/$bin-$TRIPLE"
   cp -L "$src" "$dest"
-  chmod +x "$dest"
+  # Los binarios de Homebrew vienen de solo lectura; el empaquetado de Tauri
+  # necesita poder limpiarles los atributos extendidos (xattr) antes de firmar.
+  chmod u+rwx,go+rx "$dest"
   echo "✓ $bin → $dest"
 done

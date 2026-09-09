@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- El WebView (WKWebView) compila JavaScript en tiempo de ejecución. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Los sidecars ffmpeg/ffprobe enlazan librerías que no firmamos nosotros
+       (en desarrollo, las de Homebrew). Sin esto, el runtime endurecido los mata. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Permite lanzar los sidecars como procesos hijos. -->
+  <key>com.apple.security.inherit</key>
+  <true/>
+</dict>
+</plist>
