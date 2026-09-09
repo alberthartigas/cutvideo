@@ -24,16 +24,18 @@
   --brand-navy: #0d1136;
   --brand-violet: #7749e4;
 
-  --bg: #0a0d26;
-  --panel: #0d1136;
-  --panel-2: #161b45;
-  --border: #232a5c;
-  --text: #f0eff8;
-  --muted: #8f8dad;
+  /* Negro de verdad, con grises neutros: el vídeo manda y el marco no debe
+     teñir lo que estás viendo. El violeta de marca queda para los acentos. */
+  --bg: #000000;
+  --panel: #0b0b0c;
+  --panel-2: #161617;
+  --border: #262628;
+  --text: #f2f2f3;
+  --muted: #8b8b90;
   /* Violeta algo más claro: el de marca no contrasta bien sobre fondo oscuro. */
   --accent: #9270ff;
-  --accent-fg: #0a0d26;
-  --track: #0b0f2e;
+  --accent-fg: #0b0b0c;
+  --track: #09090a;
   color-scheme: dark;
 }
 

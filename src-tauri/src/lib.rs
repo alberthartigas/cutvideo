@@ -6,6 +6,7 @@ mod music_rights;
 mod patches;
 mod projects;
 mod secrets;
+mod sfx;
 mod transcribe;
 
 use tauri::Manager;
@@ -43,6 +44,8 @@ fn startup_files() -> Vec<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -71,6 +74,7 @@ pub fn run() {
             projects::load_project,
             projects::save_project,
             projects::delete_project,
+            sfx::builtin_sfx,
             projects::projects_storage,
             patches::list_patches,
             patches::import_patch,

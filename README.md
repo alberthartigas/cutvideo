@@ -1,10 +1,19 @@
 # CutVideo
 
 Editor de vídeo rápido para Mac y Windows: cortes, transiciones, efectos,
-textos animados, subtítulos automáticos y autoedición con IA.
+textos animados, subtítulos automáticos, recorte de personas, capas
+superpuestas y autoedición con IA.
+
+Desarrollado por **Alberth Artigas**. Software libre con licencia
+[MIT](LICENSE).
 
 Tauri 2 + Rust en el backend, SvelteKit + Svelte 5 + Tailwind v4 en la interfaz,
 FFmpeg como sidecar.
+
+## Instalar
+
+Descarga la última versión desde [Releases](../../releases). La app avisa
+sola cuando hay una nueva: **Acerca de → Buscar actualizaciones**.
 
 ## Desarrollo
 
@@ -53,3 +62,38 @@ antes de `npm run tauri build`, y Tauri la envía a Apple automáticamente.
 ```bash
 npx tauri icon app-icon.svg
 ```
+
+
+## Publicar una versión
+
+Las actualizaciones van firmadas: la app solo instala paquetes firmados con la
+clave privada del autor, y comprueba la firma con la pública que lleva dentro
+(`plugins.updater.pubkey` en `src-tauri/tauri.conf.json`).
+
+```bash
+# La clave privada se generó con `npx tauri signer generate` y vive fuera del
+# repositorio. Si se pierde, los usuarios ya instalados dejan de recibir
+# actualizaciones y hay que reinstalar a mano.
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.tauri/cutvideo.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+
+scripts/release.sh 0.2.0
+```
+
+El script sube la versión en los tres manifiestos, compila, genera el
+`latest.json` que consulta el actualizador y publica la release en GitHub.
+
+## Firma de la app (macOS)
+
+`src-tauri/tauri.conf.json` lleva el Developer ID del autor en
+`bundle.macOS.signingIdentity`. Si haces un fork, cámbialo por el tuyo o quita
+esa línea para compilar sin firmar.
+
+## Licencias de lo que se distribuye
+
+- El código de CutVideo es MIT.
+- Los efectos de sonido de `src-tauri/resources/sfx/` están sintetizados con
+  `scripts/gen-sfx.sh`: son originales y van bajo la misma licencia.
+- FFmpeg se distribuye como binario aparte (sidecar), con su propia licencia.
+- La música que sugiere el panel de audio viene de Openverse y **no** se
+  distribuye con la app: cada pista conserva su licencia.

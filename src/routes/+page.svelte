@@ -12,6 +12,7 @@
   import LayerInspector from "$lib/components/LayerInspector.svelte";
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
+  import AboutDialog from "$lib/components/AboutDialog.svelte";
   import SubtitlesDialog from "$lib/components/SubtitlesDialog.svelte";
   import MediaPanel from "$lib/components/panels/MediaPanel.svelte";
   import AudioPanel from "$lib/components/panels/AudioPanel.svelte";
@@ -332,4 +333,9 @@
     <SubtitlesDialog />
   {/if}
 </div>
+{/if}
+
+<!-- Fuera del editor: también se abre desde la pantalla de inicio. -->
+{#if ui.aboutOpen}
+  <AboutDialog />
 {/if}

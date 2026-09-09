@@ -11,6 +11,7 @@ export type PanelId =
 
 export const ui = $state({
   settingsOpen: false,
+  aboutOpen: false,
   exportOpen: false,
   subtitlesOpen: false,
   /** Sección abierta en la barra lateral izquierda. */
@@ -21,4 +22,4 @@ export function openPanel(id: PanelId) {
   ui.panel = id;
 }
 
-export const anyDialogOpen = () => ui.settingsOpen || ui.exportOpen || ui.subtitlesOpen;
+export const anyDialogOpen = () => ui.settingsOpen || ui.exportOpen || ui.subtitlesOpen || ui.aboutOpen;

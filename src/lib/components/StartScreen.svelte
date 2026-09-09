@@ -6,6 +6,8 @@
   import { session, listProjects } from "$lib/session.svelte";
   import { deleteProject, projectsStorage, type ProjectSummary } from "$lib/tauri/projects";
   import { formatBytes, formatDuration } from "$lib/format";
+  import { ui } from "$lib/ui.svelte";
+  import { AUTHOR } from "$lib/about";
 
   let projects = $state<ProjectSummary[]>([]);
   let storage = $state<{ path: string; size: number } | null>(null);
@@ -180,6 +182,10 @@
         y borrarlo nunca borra tus vídeos.
       </p>
     {/if}
+
+    <button class="mt-6 self-start text-[11px] text-muted hover:text-text" onclick={() => (ui.aboutOpen = true)}>
+      Desarrollado por {AUTHOR} · software libre (MIT) · Acerca de
+    </button>
   </div>
 </div>
 

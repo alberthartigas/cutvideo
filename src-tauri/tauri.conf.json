@@ -53,6 +53,21 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": [
+      "resources/sfx/*.mp3"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENERTUwQjI3OUJBMUJCNTIKUldSU3U2R2JKd3ZsemF6aklWQ2N3bEhUSXhldlJFbEJhLzZRMlJrR3ovZHB5cHpqTkYxb0xCVkoK",
+      "endpoints": [
+        "https://github.com/TU-USUARIO/cutvideo/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

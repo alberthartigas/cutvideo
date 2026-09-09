@@ -14,3 +14,6 @@ vite.config.ts.timestamp-*
 
 # Medios de prueba para el modo navegador (npm run dev sin Tauri)
 /static/dev-media/
+
+# Copia de los efectos para el modo navegador (los buenos están en src-tauri/resources)
+/static/sfx/

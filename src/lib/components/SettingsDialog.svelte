@@ -4,6 +4,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { ui } from "$lib/ui.svelte";
   import { API_PROVIDERS } from "$lib/providers";
+  import { AUTHOR } from "$lib/about";
   import { secretDelete, secretSet, secretStatus, type SecretStatus } from "$lib/tauri/secrets";
 
   let statuses = $state<Record<string, SecretStatus>>({});
@@ -133,6 +134,16 @@
           </div>
         {/each}
       </div>
+
+      <button
+        class="mt-5 w-full text-center text-[11px] text-muted hover:text-text"
+        onclick={() => {
+          ui.settingsOpen = false;
+          ui.aboutOpen = true;
+        }}
+      >
+        Desarrollado por {AUTHOR} · Acerca de y actualizaciones
+      </button>
     </div>
   </div>
 </div>

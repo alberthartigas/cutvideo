@@ -12,6 +12,9 @@
     "opener:default",
     "dialog:default",
     "core:window:allow-start-dragging",
-    "core:window:allow-start-resize-dragging"
+    "core:window:allow-start-resize-dragging",
+    "updater:default",
+    "core:app:allow-version",
+    "process:allow-restart"
   ]
 }

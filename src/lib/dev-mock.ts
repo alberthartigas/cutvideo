@@ -90,6 +90,22 @@ export function installDevMock() {
         return "/tmp/CutVideo.mp4";
       case "plugin:event|listen":
         return ++listeners;
+      case "builtin_sfx": {
+        const cat: [string, string, string][] = [
+          ["whoosh-corto", "Whoosh corto", "Transiciones"],
+          ["whoosh-largo", "Whoosh largo", "Transiciones"],
+          ["swish", "Swish", "Transiciones"],
+          ["impacto", "Impacto", "Golpes"],
+          ["subgrave", "Subgrave", "Golpes"],
+          ["riser", "Riser", "Tensión"],
+          ["latido", "Latido", "Tensión"],
+          ["pop", "Pop", "Interfaz"],
+          ["click", "Clic", "Interfaz"],
+          ["campana", "Campana", "Avisos"],
+          ["exito", "Acierto", "Avisos"],
+        ];
+        return cat.map(([id, name, category]) => ({ id, name, category, path: `/sfx/${id}.mp3` }));
+      }
       case "export_overlay_begin":
         return "/tmp/cutvideo-mock-overlay";
       case "export_write_raw":
