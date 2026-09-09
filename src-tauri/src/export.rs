@@ -17,6 +17,9 @@ pub struct ExportState {
     child: Mutex<Option<CommandChild>>,
     cancelled: AtomicBool,
     overlay_dir: Mutex<Option<PathBuf>>,
+    /// Último codificador que funcionó: así no se vuelven a probar los que
+    /// esta máquina no tiene cada vez que se exporta.
+    encoder: Mutex<Option<Encoder>>,
 }
 
 /// Secuencia PNG con alfa (textos animados) que se superpone al vídeo desde `start`.
@@ -685,7 +688,13 @@ pub async fn export_video(
     let started = Instant::now();
     // Probamos los codificadores por hardware y, si el equipo no los tiene,
     // caemos al de software. La lista siempre acaba en x264.
-    let candidates = Encoder::candidates(&plan.encoder);
+    let mut candidates = Encoder::candidates(&plan.encoder);
+    // El que ya funcionó aquí va primero.
+    if let Some(previo) = *state.encoder.lock().unwrap() {
+        if let Some(i) = candidates.iter().position(|&c| c == previo) {
+            candidates.swap(0, i);
+        }
+    }
     let mut encoder = candidates[0];
     let mut result = run(&app, state, build_args(&plan, encoder), total).await;
     for &siguiente in &candidates[1..] {
@@ -696,6 +705,9 @@ pub async fn export_video(
         result = run(&app, state, build_args(&plan, encoder), total).await;
     }
 
+    if result.is_ok() {
+        *state.encoder.lock().unwrap() = Some(encoder);
+    }
     match result {
         Ok(()) => Ok(ExportResult {
             output: plan.output,

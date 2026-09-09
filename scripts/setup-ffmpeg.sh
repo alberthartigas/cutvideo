@@ -11,13 +11,23 @@ cd "$(dirname "$0")/.."
 TRIPLE="$(rustc --print host-tuple 2>/dev/null || rustc -vV | sed -n 's/^host: //p')"
 mkdir -p src-tauri/binaries
 
+# En Windows el sidecar tiene que llevar .exe o Tauri no lo encuentra. Además
+# conviene una build "full" (gyan.dev o BtbN): las mínimas vienen sin NVENC,
+# Quick Sync ni AMF, y entonces la exportación cae siempre al procesador.
+EXT=""
+case "$TRIPLE" in *windows*) EXT=".exe" ;; esac
+
 for bin in ffmpeg ffprobe; do
   src="$(command -v "$bin" || true)"
   if [[ -z "$src" ]]; then
-    echo "✗ No se encontró $bin en el PATH. Instálalo con: brew install ffmpeg" >&2
+    if [[ -n "$EXT" ]]; then
+      echo "✗ No se encontró $bin en el PATH. Bájalo de https://www.gyan.dev/ffmpeg/builds/ (full) y añádelo al PATH." >&2
+    else
+      echo "✗ No se encontró $bin en el PATH. Instálalo con: brew install ffmpeg" >&2
+    fi
     exit 1
   fi
-  dest="src-tauri/binaries/$bin-$TRIPLE"
+  dest="src-tauri/binaries/$bin-$TRIPLE$EXT"
   cp -L "$src" "$dest"
   # Los binarios de Homebrew vienen de solo lectura; el empaquetado de Tauri
   # necesita poder limpiarles los atributos extendidos (xattr) antes de firmar.
