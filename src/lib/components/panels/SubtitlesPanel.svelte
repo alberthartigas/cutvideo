@@ -48,7 +48,7 @@
         onclick={() => restyle(s.id)}
         title={s.hint}
       >
-        <TextThumb data={{ ...s.data, fontSize: 0.15, y: 0.5 }} label="Texto" playing={hovered === s.id} duration={2.2} />
+        <TextThumb data={{ ...s.data, fontSize: 0.15, y: 0.5 }} label="Texto" playing={hovered === s.id} duration={1.8} />
         <span class="label">{s.name}</span>
       </button>
     {/each}

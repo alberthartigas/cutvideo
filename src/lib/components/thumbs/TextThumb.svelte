@@ -20,13 +20,16 @@
     y: 0.5,
     maxWidth: 0.9,
     stroke: 0.05,
-    inDur: duration * 0.4,
-    outDur: 0.01,
     ...data,
-    // Después del spread: los estilos de subtítulo traen `text: ""` y si no,
-    // borrarían la etiqueta y la miniatura saldría en blanco.
+    // Todo esto va DESPUÉS del spread a propósito:
+    //  - `text`: los estilos de subtítulo traen `text: ""` y borrarían la etiqueta.
+    //  - los tiempos: esos estilos entran en 0,08 s, que en la miniatura se ve
+    //    como un texto que aparece de golpe y parece que no anima. Aquí es una
+    //    demostración, así que la entrada y la salida se alargan para que se vean.
     text: label,
     wordTimes: undefined,
+    inDur: duration * 0.35,
+    outDur: duration * 0.12,
   });
 
   $effect(() => {
