@@ -49,6 +49,7 @@ const FILES: MediaInfo[] = [
   fake("verde.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
   fake("fondo.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
   fake("persona.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
+  fake("persona-hd.mp4", 4, { width: 1920, height: 1080, fps: 30 }, false),
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

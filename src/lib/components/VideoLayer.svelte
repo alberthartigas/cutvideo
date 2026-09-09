@@ -19,6 +19,10 @@
     fit = "cover",
   }: { track: Track; time: number; playing: boolean; viewH: number; fit?: string } = $props();
 
+  /** Fotograma reducido para el recorte: al modelo no le hace falta más. */
+  const CHICO = 512;
+  let reducido: HTMLCanvasElement | undefined;
+
   let videoEl = $state<HTMLVideoElement>();
   let canvasEl = $state<HTMLCanvasElement>();
   let renderer: LayerRenderer | undefined;
@@ -76,8 +80,29 @@
   function pintar() {
     const el = videoEl;
     if (!el || !clip || !renderer || !needsCanvas || !glOk) return;
-    const mask = layout.cutout && segmenter.ready ? segmenter.segment(el) : null;
+    const mask = layout.cutout && segmenter.ready ? segmenter.segment(fotogramaChico(el)) : null;
     renderer.draw(el, { chroma: clip.effects?.chroma, mask, feather: layout.feather });
+  }
+
+  /**
+   * Copia del fotograma a lo sumo 512 px de lado. Segmentar a 1080p cuesta el
+   * doble y da la misma silueta, porque el modelo trabaja a 256 px por dentro.
+   * Se mantiene la proporción entera, sin recortar, para que la máscara siga
+   * cuadrando con el vídeo píxel a píxel.
+   */
+  function fotogramaChico(el: HTMLVideoElement): HTMLCanvasElement | HTMLVideoElement {
+    const [w, h] = [el.videoWidth, el.videoHeight];
+    if (!w || !h || Math.max(w, h) <= CHICO) return el;
+    const escala = CHICO / Math.max(w, h);
+    reducido ??= document.createElement("canvas");
+    const [cw, ch] = [Math.max(2, Math.round(w * escala)), Math.max(2, Math.round(h * escala))];
+    // Asignar el tamaño borra el lienzo, así que solo se toca si cambió.
+    if (reducido.width !== cw || reducido.height !== ch) {
+      reducido.width = cw;
+      reducido.height = ch;
+    }
+    reducido.getContext("2d")!.drawImage(el, 0, 0, reducido.width, reducido.height);
+    return reducido;
   }
 
   /** Caja de la capa dentro del frame, en porcentaje. */

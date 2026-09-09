@@ -75,12 +75,12 @@ export async function renderCutoutMasks(
   const mw = Math.max(2, Math.round((size.width / largo) * MASK_LONG_SIDE));
   const mh = Math.max(2, Math.round((size.height / largo) * MASK_LONG_SIDE));
 
+  // El fotograma se reduce aquí, con el mismo encaje que usa el preview. Así
+  // la silueta sale ya del tamaño final y no hay que reescalarla después.
   const lienzo = document.createElement("canvas");
   lienzo.width = mw;
   lienzo.height = mh;
-  const ctx = lienzo.getContext("2d", { willReadFrequently: true })!;
-  const fuente = document.createElement("canvas");
-  const fctx = fuente.getContext("2d")!;
+  const ctx = lienzo.getContext("2d")!;
   const gris = new Uint8Array(mw * mh);
 
   const video = document.createElement("video");
@@ -116,40 +116,31 @@ export async function renderCutoutMasks(
       for (let i = 0; i < frames; i++) {
         if (isCancelled()) throw new Error("Exportación cancelada");
         await siguiente;
+        // Reducimos el fotograma antes de pasárselo al modelo y la máscara
+        // vuelve ya del tamaño final.
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, mw, mh);
+        const r = fitRect(video.videoWidth || mw, video.videoHeight || mh, mw, mh, fit);
+        ctx.drawImage(video, r.x, r.y, r.w, r.h);
+        const mask = segmenter.segment(lienzo);
         // La máscara se copia, así que el vídeo queda libre: mandamos ya la
         // búsqueda del siguiente fotograma y la GPU trabaja mientras la CPU
         // prepara este y lo escribe.
-        const mask = segmenter.segment(video);
         siguiente = i + 1 < frames ? buscar(i + 1) : null;
         // Si abortamos, esa búsqueda queda a medias: la damos por atendida
         // para que no salte como promesa rechazada sin dueño.
         siguiente?.catch(() => {});
 
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, mw, mh);
         if (mask) {
           conSilueta++;
-          // Gris = alfa. Mismo suavizado que el shader del preview.
-          if (fuente.width !== mask.width || fuente.height !== mask.height) {
-            fuente.width = mask.width;
-            fuente.height = mask.height;
-          }
-          const img = fctx.createImageData(mask.width, mask.height);
-          const px = img.data;
-          for (let j = 0; j < mask.data.length; j++) {
+          // Gris = alfa, con el mismo suavizado que el shader del preview.
+          for (let j = 0; j < gris.length; j++) {
             const t = Math.min(1, Math.max(0, (mask.data[j] - lo) / (alto - lo)));
-            const v = Math.round(t * t * (3 - 2 * t) * 255); // smoothstep
-            const o = j * 4;
-            px[o] = px[o + 1] = px[o + 2] = v;
-            px[o + 3] = 255;
+            gris[j] = Math.round(t * t * (3 - 2 * t) * 255); // smoothstep
           }
-          fctx.putImageData(img, 0, 0);
-          const r = fitRect(mask.width, mask.height, mw, mh, fit);
-          ctx.drawImage(fuente, r.x, r.y, r.w, r.h);
+        } else {
+          gris.fill(0);
         }
-        // Del RGBA nos quedamos con un canal: la silueta es gris.
-        const rgba = ctx.getImageData(0, 0, mw, mh).data;
-        for (let j = 0, o = 0; j < gris.length; j++, o += 4) gris[j] = rgba[o];
 
         // Los fotogramas van en fila en el mismo archivo, así que se escriben
         // en orden: esperamos al anterior justo antes de mandar el siguiente.

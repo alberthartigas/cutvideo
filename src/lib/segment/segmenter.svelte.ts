@@ -44,10 +44,15 @@ class PersonSegmenter {
     return this.#loading;
   }
 
-  /** Máscara de la persona en el frame actual del vídeo, o null si aún no está listo. */
-  segment(video: HTMLVideoElement): Mask | null {
+  /**
+   * Máscara de la persona en el fotograma actual, o null si aún no está listo.
+   * Acepta el vídeo directamente o un lienzo con el fotograma ya reducido: el
+   * modelo trabaja a 256 px por dentro, así que darle 1080p solo cuesta tiempo.
+   */
+  segment(video: HTMLVideoElement | HTMLCanvasElement): Mask | null {
     const seg = this.#segmenter;
-    if (!seg || video.readyState < 2 || !video.videoWidth) return null;
+    if (!seg) return null;
+    if (video instanceof HTMLVideoElement && (video.readyState < 2 || !video.videoWidth)) return null;
     this.#clock += 33;
     let mask: Mask | null = null;
     try {
