@@ -1,10 +1,12 @@
-# Compila la versión de Windows y la añade a una release que ya exista.
+# Compila las versiones de Windows y las añade a una release que ya exista.
 #
 # El .app de macOS se compila en el Mac del autor (ahí está el Developer ID);
-# Windows lo hace GitHub en una máquina Windows, porque desde macOS no se puede
-# cross-compilar: hacen falta el toolchain de MSVC, WebView2 y el instalador.
+# Windows lo hace GitHub, porque desde macOS no se puede cross-compilar: hacen
+# falta el toolchain de MSVC, WebView2 y el instalador.
 #
-# Se dispara solo al publicar una release, o a mano desde la pestaña Actions.
+# Arquitecturas: x64 y ARM64. **No hay versión de 32 bits** y no es un olvido:
+# FFmpeg no publica builds LGPL para win32 desde hace años, y sin el sidecar la
+# app no puede cortar ni exportar nada. Windows 11 tampoco existe en 32 bits.
 name: Windows
 
 on:
@@ -19,35 +21,51 @@ on:
 permissions:
   contents: write
 
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
 jobs:
-  windows:
+  build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            ffmpeg: win64
+          - target: aarch64-pc-windows-msvc
+            ffmpeg: winarm64
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 trae npm 11. Con npm 10 (el de Node 22) `npm ci` se atraganta
+      # con las dependencias opcionales de otras plataformas que hay en el lock.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ${{ matrix.target }}
 
-      # FFmpeg va como sidecar, no como librería enlazada. Se coge una build
-      # LGPL para no arrastrar la GPL a una app con licencia MIT.
+      # FFmpeg va como sidecar, no enlazado. Se coge la build LGPL para no
+      # arrastrar la GPL a una app con licencia MIT.
       - name: Preparar los sidecars de FFmpeg
         shell: pwsh
         run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-${{ matrix.ffmpeg }}-lgpl.zip"
           Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
           $bin = Get-ChildItem -Path ffmpeg-tmp -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
           New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
-          Copy-Item $bin.FullName "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe"
-          Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "src-tauri/binaries/ffprobe-x86_64-pc-windows-msvc.exe"
+          Copy-Item $bin.FullName "src-tauri/binaries/ffmpeg-${{ matrix.target }}.exe"
+          Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "src-tauri/binaries/ffprobe-${{ matrix.target }}.exe"
 
       - run: npm ci
 
@@ -61,15 +79,19 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ github.event.release.tag_name || inputs.tag }}
+          tagName: ${{ env.TAG }}
           releaseId: ${{ github.event.release.id }}
-          args: --target x86_64-pc-windows-msvc
+          args: --target ${{ matrix.target }}
 
-      # tauri-action escribe su propio latest.json con las plataformas que
-      # acaba de compilar, y eso borraría la entrada de macOS. Aquí se vuelven
-      # a juntar las dos sobre el archivo que ya está en la release.
-      - name: Juntar el latest.json de las dos plataformas
-        shell: bash
+  # Cada compilación sube su propio latest.json y la última borraría a las
+  # demás, así que se juntan al final, cuando ya han terminado todas.
+  merge:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Juntar el latest.json de todas las plataformas
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/merge-latest-json.sh "${{ github.event.release.tag_name || inputs.tag }}"
+        run: bash scripts/merge-latest-json.sh "${{ env.TAG }}"
