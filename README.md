@@ -86,6 +86,18 @@ El script sube la versión en los tres manifiestos, compila, genera el
 `bundle.macOS.signingIdentity`. Si haces un fork, cámbialo por el tuyo o quita
 esa línea para compilar sin firmar.
 
+## Claves de API
+
+Las claves (Groq, Gemini, OpenAI, Anthropic) se pegan en **Ajustes** y se
+guardan en el llavero del sistema: llavero de macOS o Administrador de
+credenciales de Windows. Nunca se escriben en un archivo ni viajan al
+repositorio.
+
+El backend no expone ningún comando para leerlas: la interfaz solo puede
+guardarlas, borrarlas y preguntar si existen, y lo único que recibe de vuelta
+es una pista con los cuatro últimos caracteres (`…abcd`). Ver
+`src-tauri/src/secrets.rs`.
+
 ## Licencias de lo que se distribuye
 
 - El código de CutVideo es MIT.

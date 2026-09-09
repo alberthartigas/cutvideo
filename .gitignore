@@ -17,3 +17,13 @@ vite.config.ts.timestamp-*
 
 # Copia de los efectos para el modo navegador (los buenos están en src-tauri/resources)
 /static/sfx/
+
+# Nada de credenciales en el repositorio. Las claves de API viven en el llavero
+# del sistema (ver src-tauri/src/secrets.rs) y la clave de firma del
+# actualizador en ~/.tauri/cutvideo.key. Esto es solo una red por si acaso.
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
+secrets.json
