@@ -56,6 +56,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const devProjects: { file: any; thumbnail: string | null }[] = [];
 
+/** Biblioteca de parches simulada, con uno de ejemplo ya dentro. */
+const devPatches: { id: string; name: string; path: string; sizeBytes: number }[] = [
+  { id: "sticker.png", name: "sticker", path: `${DIR}/sticker.png`, sizeBytes: 4096 },
+];
+
 export function installDevMock() {
   mockWindows("main");
   // Las rutas "falsas" ya son URLs servidas por Vite.
@@ -120,6 +125,20 @@ export function installDevMock() {
           provider: (args.request as { provider: string }).provider,
           model: "simulado",
         };
+      }
+      case "list_patches":
+        return devPatches;
+      case "import_patch": {
+        const path = String(args.path);
+        const file = path.split("/").pop() ?? "parche.png";
+        const asset = { id: file, name: file.replace(/\.[^.]+$/, ""), path, sizeBytes: 12345 };
+        if (!devPatches.some((p) => p.id === asset.id)) devPatches.push(asset);
+        return asset;
+      }
+      case "delete_patch": {
+        const i = devPatches.findIndex((p) => p.id === args.id);
+        if (i >= 0) devPatches.splice(i, 1);
+        return null;
       }
       case "list_projects":
         return devProjects.map(({ file, thumbnail }) => ({

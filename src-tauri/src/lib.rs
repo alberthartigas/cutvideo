@@ -3,6 +3,7 @@ mod analyze;
 mod export;
 mod media;
 mod music_rights;
+mod patches;
 mod projects;
 mod secrets;
 mod transcribe;
@@ -70,6 +71,9 @@ pub fn run() {
             projects::save_project,
             projects::delete_project,
             projects::projects_storage,
+            patches::list_patches,
+            patches::import_patch,
+            patches::delete_patch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

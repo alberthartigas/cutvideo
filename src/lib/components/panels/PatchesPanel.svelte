@@ -1,16 +1,22 @@
 <script lang="ts">
-  import { FlipHorizontal2, Image as ImageIcon, Plus, Trash2 } from "@lucide/svelte";
+  import { onMount } from "svelte";
+  import { FlipHorizontal2, Image as ImageIcon, LoaderCircle, Plus, Trash2, X } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project, type Clip } from "$lib/project.svelte";
-  import { IMAGE_EXTENSIONS, mediaSrc, pickImageFiles, probeMedia } from "$lib/tauri/media";
+  import { mediaSrc, pickImageFiles } from "$lib/tauri/media";
+  import { patchLibrary } from "$lib/patches/library.svelte";
   import { BUILTIN_STICKERS, builtinPath, STICKER_GROUPS } from "$lib/patches/builtin";
   import { DEFAULT_PATCH } from "$lib/patches/types";
   import TrackObjectButton from "../TrackObjectButton.svelte";
 
   let importing = $state(false);
   let error = $state<string | null>(null);
+  /** Parche cuyo botón de borrar está confirmando. */
+  let removing = $state<string | null>(null);
 
-  let images = $derived(project.media.filter((m) => m.isImage));
+  // La biblioteca es de la app, no del proyecto: los parches siguen ahí siempre.
+  onMount(() => patchLibrary.load());
+  let mine = $derived(patchLibrary.items);
   /** Parche seleccionado en el timeline, si lo hay. */
   let selected = $derived(project.selected?.clip.kind === "image" ? project.selected.clip : null);
   let patch = $derived(selected?.patch ?? DEFAULT_PATCH);
@@ -24,18 +30,12 @@
     error = null;
     try {
       const paths = await pickImageFiles();
-      let añadidos = 0;
-      for (const path of paths) {
-        if (!IMAGE_EXTENSIONS.some((e) => path.toLowerCase().endsWith(`.${e}`))) continue;
-        if (project.media.some((m) => m.path === path)) {
-          añadidos++;
-          continue;
-        }
-        project.addMedia(await probeMedia(path));
-        añadidos++;
-      }
-      if (paths.length > 0 && añadidos === 0) {
-        error = "Esos archivos no son imágenes que la app pueda usar.";
+      if (paths.length === 0) return;
+      const added = await patchLibrary.add(paths);
+      if (added === 0) {
+        error = patchLibrary.error ?? "Esos archivos no se pueden usar como parche.";
+      } else {
+        error = null;
       }
     } catch (e) {
       error = String(e);
@@ -93,20 +93,45 @@
     {/each}
   </div>
 
-  <!-- Los que ha traído el usuario -->
-  {#if images.length}
-    <h3 class="mb-1.5 px-1 text-[11px] font-semibold tracking-wider text-muted uppercase">Tuyos</h3>
+  <!-- Biblioteca del usuario: se guarda en la app y está en todos los proyectos -->
+  <div class="mb-1.5 flex items-baseline gap-2 px-1">
+    <h3 class="text-[11px] font-semibold tracking-wider text-muted uppercase">Tuyos</h3>
+    {#if patchLibrary.loading}<LoaderCircle size={11} class="animate-spin text-muted" />{/if}
+    {#if mine.length}<span class="ml-auto text-[10px] text-muted">en todos tus proyectos</span>{/if}
+  </div>
+  {#if mine.length}
     <div class="mb-3 grid grid-cols-4 gap-1.5">
-      {#each images as img (img.path)}
-        <button class="tile" title="Poner «{img.fileName}» en el playhead" onclick={() => project.addClip(img)}>
-          <img src={mediaSrc(img.path)} alt={img.fileName} />
-        </button>
+      {#each mine as p (p.id)}
+        <div class="relative">
+          <button
+            class="tile w-full"
+            title="Poner «{p.name}» en el playhead"
+            onclick={() => project.addPatch({ path: p.path, fileName: p.name })}
+          >
+            <img src={mediaSrc(p.path)} alt={p.name} />
+          </button>
+          <button
+            class="remove"
+            title={removing === p.id ? "Pulsa otra vez para quitarlo de la biblioteca" : "Quitar de la biblioteca"}
+            onclick={() => {
+              if (removing === p.id) {
+                patchLibrary.remove(p.id);
+                removing = null;
+              } else {
+                removing = p.id;
+              }
+            }}
+            onmouseleave={() => (removing = removing === p.id ? null : removing)}
+          >
+            {#if removing === p.id}<Trash2 size={10} />{:else}<X size={10} />{/if}
+          </button>
+        </div>
       {/each}
     </div>
   {:else}
     <p class="mb-3 flex items-center gap-2 rounded-lg border border-dashed border-border px-2.5 py-2 text-[11px] text-muted">
       <ImageIcon size={16} class="shrink-0 opacity-50" />
-      Con «Añadir» traes tus propios PNG, JPG, WebP o stickers de WhatsApp.
+      Con «Añadir» traes tus PNG, JPG, WebP o stickers de WhatsApp. Se quedan guardados para todos tus proyectos.
     </p>
   {/if}
 
@@ -201,6 +226,28 @@
   }
   .tile:hover {
     border-color: var(--accent);
+  }
+  .remove {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    display: grid;
+    height: 16px;
+    width: 16px;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity 120ms;
+  }
+  .relative:hover .remove {
+    opacity: 1;
+  }
+  .remove:hover {
+    border-color: #ef4444;
+    color: #ef4444;
   }
   .tile img {
     max-height: 100%;
