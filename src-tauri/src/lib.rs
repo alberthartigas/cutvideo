@@ -55,6 +55,7 @@ pub fn run() {
             export::cancel_export,
             export::export_overlay_begin,
             export::export_write_frame,
+            export::export_write_raw,
             export::export_overlay_end,
             secrets::secret_set,
             secrets::secret_status,

@@ -91,6 +91,14 @@ export function installDevMock() {
         return ++listeners;
       case "export_overlay_begin":
         return "/tmp/cutvideo-mock-overlay";
+      case "export_write_raw":
+        // Las siluetas van en crudo: solo contamos bytes para poder medir.
+        if (payload instanceof Uint8Array) {
+          const w = window as unknown as { __rawBytes?: number; __rawFrames?: number };
+          w.__rawBytes = (w.__rawBytes ?? 0) + payload.length;
+          w.__rawFrames = (w.__rawFrames ?? 0) + 1;
+        }
+        return null;
       case "export_write_frame":
         // Guardamos los frames en `window.__frames` (base64) para poder mirar
         // las máscaras y los textos desde la consola sin exportar de verdad.

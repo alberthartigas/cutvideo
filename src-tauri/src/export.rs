@@ -29,6 +29,23 @@ pub struct ExportOverlay {
     pub start: f64,
 }
 
+/// Silueta de recorte de una capa: un flujo de bytes en gris, un byte por
+/// píxel, sin comprimir. Comprimir cada fotograma a PNG costaba más que todo
+/// lo demás junto, así que el frontend escribe los bytes tal cual y ffmpeg los
+/// lee como `rawvideo`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMask {
+    /// Segmento dentro de la carpeta temporal. La ruta la pone el backend.
+    pub segment: u32,
+    pub fps: f64,
+    pub width: u32,
+    pub height: u32,
+    /// Ruta real del archivo; la rellena `export_video`, nunca el frontend.
+    #[serde(skip)]
+    pub path: String,
+}
+
 /// Colocación de una capa dentro del frame (centro y tamaño normalizados).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,9 +63,9 @@ pub struct ExportLayout {
 pub struct ExportLayer {
     pub clip: ExportClip,
     pub layout: ExportLayout,
-    /// Secuencia PNG en gris con la silueta (blanco = se ve), o null.
+    /// Silueta de la persona (blanco = se ve), o null.
     #[serde(default)]
-    pub mask: Option<ExportOverlay>,
+    pub mask: Option<ExportMask>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -140,7 +157,15 @@ pub struct ExportResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Encoder {
+    /// Mac: bloque dedicado de vídeo del chip.
     VideoToolbox,
+    /// Windows/Linux con gráfica Nvidia.
+    Nvenc,
+    /// Gráfica integrada de Intel (Quick Sync).
+    Qsv,
+    /// Gráfica AMD.
+    Amf,
+    /// Por software, en el procesador. Siempre funciona.
     X264,
 }
 
@@ -148,8 +173,50 @@ impl Encoder {
     fn name(self) -> &'static str {
         match self {
             Encoder::VideoToolbox => "h264_videotoolbox",
+            Encoder::Nvenc => "h264_nvenc",
+            Encoder::Qsv => "h264_qsv",
+            Encoder::Amf => "h264_amf",
             Encoder::X264 => "libx264",
         }
+    }
+
+    /// Codificadores a probar, del más rápido al que siempre funciona. Si el
+    /// equipo no tiene esa gráfica, ffmpeg falla al arrancar y pasamos al
+    /// siguiente, así que no hace falta detectar el hardware por otro lado.
+    fn candidates(forced: &str) -> Vec<Encoder> {
+        if forced == "x264" {
+            return vec![Encoder::X264];
+        }
+        if cfg!(target_os = "macos") {
+            vec![Encoder::VideoToolbox, Encoder::X264]
+        } else {
+            vec![Encoder::Nvenc, Encoder::Qsv, Encoder::Amf, Encoder::X264]
+        }
+    }
+
+    /// Argumentos de codificación. Los de hardware van por bitrate; x264 por
+    /// calidad constante, que es lo que mejor se le da.
+    fn args(self, bitrate: &str) -> Vec<String> {
+        match self {
+            Encoder::VideoToolbox => vec![
+                "-c:v", "h264_videotoolbox", "-b:v", bitrate, "-profile:v", "high", "-allow_sw", "1",
+            ],
+            Encoder::Nvenc => vec![
+                "-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-b:v", bitrate,
+                "-profile:v", "high",
+            ],
+            Encoder::Qsv => vec!["-c:v", "h264_qsv", "-b:v", bitrate, "-profile:v", "high"],
+            Encoder::Amf => vec![
+                "-c:v", "h264_amf", "-quality", "balanced", "-rc", "vbr_latency", "-b:v", bitrate,
+                "-profile:v", "high",
+            ],
+            Encoder::X264 => vec![
+                "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high",
+            ],
+        }
+        .into_iter()
+        .map(String::from)
+        .collect()
     }
 }
 
@@ -254,13 +321,19 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
             l.clip.path.clone(),
         ]);
     }
-    // Máscaras de recorte: secuencias PNG en gris.
+    // Máscaras de recorte: un byte por píxel, sin cabecera ni compresión.
     for m in plan.layers.iter().filter_map(|l| l.mask.as_ref()) {
         args.extend([
+            "-f".into(),
+            "rawvideo".into(),
+            "-pix_fmt".into(),
+            "gray".into(),
+            "-video_size".into(),
+            format!("{}x{}", m.width, m.height),
             "-framerate".into(),
             format!("{:.3}", m.fps),
             "-i".into(),
-            m.pattern.clone(),
+            m.path.clone(),
         ]);
     }
     // Capas de texto: secuencias PNG con alfa.
@@ -477,21 +550,9 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         "[aout]".into(),
     ]);
 
-    match encoder {
-        Encoder::VideoToolbox => {
-            // Bitrate proporcional a píxeles × fps (1080p30 ≈ 12 Mb/s).
-            let kbps = ((w * h) as f64 * plan.fps * 0.19 / 1000.0).clamp(2000.0, 60000.0) as u32;
-            let bitrate = format!("{kbps}k");
-            args.extend(
-                ["-c:v", "h264_videotoolbox", "-b:v", &bitrate, "-profile:v", "high", "-allow_sw", "1"]
-                    .map(String::from),
-            );
-        }
-        Encoder::X264 => args.extend(
-            ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high"]
-                .map(String::from),
-        ),
-    }
+    // Bitrate proporcional a píxeles × fps (1080p30 ≈ 12 Mb/s).
+    let kbps = ((w * h) as f64 * plan.fps * 0.19 / 1000.0).clamp(2000.0, 60000.0) as u32;
+    args.extend(encoder.args(&format!("{kbps}k")));
     let total_s = sec(total);
     args.extend(
         ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-t", &total_s]
@@ -598,21 +659,40 @@ pub async fn export_video(
     // yuv420p exige dimensiones pares.
     plan.width -= plan.width % 2;
     plan.height -= plan.height % 2;
+
+    // Las rutas de las siluetas las pone el backend a partir de su propia
+    // carpeta temporal: el frontend solo dice qué segmento le toca a cada capa.
+    let overlay_dir = state.overlay_dir.lock().unwrap().clone();
+    for capa in plan.layers.iter_mut() {
+        if let Some(m) = capa.mask.as_mut() {
+            let dir = overlay_dir
+                .as_ref()
+                .ok_or("No se prepararon las siluetas de recorte")?;
+            if m.width < 2 || m.height < 2 || m.width > 8192 || m.height > 8192 || m.fps <= 0.0 {
+                return Err("Silueta de recorte con tamaño o fps no válidos".into());
+            }
+            let path = dir.join(format!("{}.raw", m.segment));
+            if !path.is_file() {
+                return Err(format!("Falta la silueta de la capa (segmento {})", m.segment));
+            }
+            m.path = path.to_string_lossy().into_owned();
+        }
+    }
     let total = total_duration(&plan);
     let state = state.inner();
     state.cancelled.store(false, Ordering::SeqCst);
 
     let started = Instant::now();
-    let mut encoder = if plan.encoder == "x264" || !cfg!(target_os = "macos") {
-        Encoder::X264
-    } else {
-        Encoder::VideoToolbox
-    };
+    // Probamos los codificadores por hardware y, si el equipo no los tiene,
+    // caemos al de software. La lista siempre acaba en x264.
+    let candidates = Encoder::candidates(&plan.encoder);
+    let mut encoder = candidates[0];
     let mut result = run(&app, state, build_args(&plan, encoder), total).await;
-
-    // Si el codificador por hardware falla, reintentamos por software.
-    if matches!(result, Err(RunError::Failed(_))) && encoder == Encoder::VideoToolbox {
-        encoder = Encoder::X264;
+    for &siguiente in &candidates[1..] {
+        if !matches!(result, Err(RunError::Failed(_))) {
+            break;
+        }
+        encoder = siguiente;
         result = run(&app, state, build_args(&plan, encoder), total).await;
     }
 
@@ -675,6 +755,45 @@ pub fn export_write_frame(state: State<'_, ExportState>, request: Request<'_>) -
     let seg_dir = dir.join(segment.to_string());
     std::fs::create_dir_all(&seg_dir).map_err(|e| e.to_string())?;
     std::fs::write(seg_dir.join(format!("{frame:05}.png")), bytes).map_err(|e| e.to_string())
+}
+
+/// Añade un fotograma de silueta (bytes en gris) al flujo `<dir>/<segmento>.raw`.
+/// Los fotogramas tienen todos el mismo tamaño, así que el orden se comprueba
+/// mirando lo que lleva escrito el archivo: si no cuadra, algo llegó cambiado
+/// de sitio y el recorte saldría desplazado.
+#[tauri::command]
+pub fn export_write_raw(state: State<'_, ExportState>, request: Request<'_>) -> Result<(), String> {
+    let dir = state
+        .overlay_dir
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No hay ninguna exportación en curso")?;
+    let segment = header_u32(&request, "x-segment")?;
+    let frame = header_u32(&request, "x-frame")?;
+    let InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Se esperaba un cuerpo binario".into());
+    };
+    if bytes.is_empty() {
+        return Err("Fotograma de silueta vacío".into());
+    }
+    let path = dir.join(format!("{segment}.raw"));
+    let mut file = if frame == 0 {
+        std::fs::File::create(&path).map_err(|e| e.to_string())?
+    } else {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| e.to_string())?
+    };
+    let escrito = file.metadata().map_err(|e| e.to_string())?.len();
+    let esperado = frame as u64 * bytes.len() as u64;
+    if escrito != esperado {
+        return Err(format!(
+            "Las siluetas llegaron desordenadas (fotograma {frame}: había {escrito} bytes, se esperaban {esperado})"
+        ));
+    }
+    std::io::Write::write_all(&mut file, bytes).map_err(|e| e.to_string())
 }
 
 /// Borra la carpeta temporal de frames de texto.
@@ -815,18 +934,16 @@ mod tests {
             &verde,
         );
 
-        // Máscara: blanca a la izquierda, negra a la derecha. Se guarda en RGBA
-        // porque es lo que produce el canvas del frontend, y ahí es donde se
-        // vería si ffmpeg comprimiera los valores al rango de vídeo (16–235).
-        let mask_dir = p("cap-mask");
-        std::fs::create_dir_all(&mask_dir).unwrap();
+        // Silueta: blanca a la izquierda, negra a la derecha, en el mismo flujo
+        // de bytes en gris que escribe el frontend (un byte por píxel, sin
+        // comprimir). Aquí es donde se vería si ffmpeg recortara el rango.
+        let mask_raw = p("cap-mask.raw");
         let ok = std::process::Command::new(&ffmpeg)
             .args(["-v", "error", "-y", "-f", "lavfi", "-i",
                    "color=c=black:s=160x120:r=25:d=2,drawbox=x=0:y=0:w=80:h=120:color=white:t=fill",
-                   "-pix_fmt", "rgba", "-start_number", "0",
-                   &format!("{mask_dir}/%05d.png")])
+                   "-f", "rawvideo", "-pix_fmt", "gray", &mask_raw])
             .status()
-            .expect("generar la máscara");
+            .expect("generar la silueta");
         assert!(ok.success());
 
         let out = p("cap-out.mp4");
@@ -843,10 +960,12 @@ mod tests {
                 ExportLayer {
                     clip: clip(&magenta, 0.0, 2.0, 0.0, false),
                     layout: ExportLayout { x: 0.5, y: 0.5, scale: 1.0, opacity: 1.0 },
-                    mask: Some(ExportOverlay {
-                        pattern: format!("{mask_dir}/%05d.png"),
+                    mask: Some(ExportMask {
+                        segment: 0,
                         fps: 25.0,
-                        start: 0.0,
+                        width: 160,
+                        height: 120,
+                        path: mask_raw.clone(),
                     }),
                 },
                 // Encima: pantalla verde a media escala, en el centro.

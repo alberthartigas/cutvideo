@@ -5,15 +5,21 @@ import { segmenter } from "./segmenter.svelte";
 import type { Clip, FrameSize } from "$lib/project.svelte";
 
 /**
- * Recorte de personas para la exportación: recorre el clip frame a frame,
- * pide la silueta al segmentador y la guarda como secuencia PNG en gris.
- * ffmpeg la usa luego como canal alfa (`alphamerge`), así que lo que se ve
- * en el vídeo final es exactamente lo mismo que en el preview.
+ * Recorte de personas para la exportación: recorre el clip fotograma a
+ * fotograma, pide la silueta al segmentador y la escribe como bytes en gris
+ * (uno por píxel, sin comprimir). ffmpeg lee ese flujo como `rawvideo` y lo
+ * usa de canal alfa, así que el vídeo final sale igual que el preview.
+ *
+ * Se escribe en crudo a propósito: comprimir cada silueta a PNG costaba más
+ * que buscar el fotograma y pasar la IA juntos, y aquí no hace falta, porque
+ * el archivo es temporal y se borra al acabar.
  */
 export interface MaskSequence {
-  pattern: string;
+  /** Segmento dentro de la carpeta temporal; el backend arma la ruta. */
+  segment: number;
   fps: number;
-  start: number;
+  width: number;
+  height: number;
 }
 
 /** El modelo trabaja a 256 px: por encima de esto la máscara ya no gana detalle. */
@@ -48,12 +54,11 @@ function fitRect(sw: number, sh: number, dw: number, dh: number, fit: string) {
 }
 
 /**
- * Genera una secuencia por clip con recorte. Los segmentos se numeran a partir
+ * Genera una silueta por clip con recorte. Los segmentos se numeran a partir
  * de `firstSegment` porque comparten carpeta temporal con las capas de texto.
  */
 export async function renderCutoutMasks(
   clips: Clip[],
-  base: string,
   firstSegment: number,
   size: FrameSize,
   fit: string,
@@ -73,9 +78,10 @@ export async function renderCutoutMasks(
   const lienzo = document.createElement("canvas");
   lienzo.width = mw;
   lienzo.height = mh;
-  const ctx = lienzo.getContext("2d")!;
+  const ctx = lienzo.getContext("2d", { willReadFrequently: true })!;
   const fuente = document.createElement("canvas");
   const fctx = fuente.getContext("2d")!;
+  const gris = new Uint8Array(mw * mh);
 
   const video = document.createElement("video");
   video.muted = true;
@@ -84,6 +90,8 @@ export async function renderCutoutMasks(
 
   const totalFrames = clips.reduce((n, c) => n + Math.ceil((c.out - c.in) * fps), 0);
   let hechos = 0;
+  /** Escritura en vuelo: se solapa con la búsqueda del fotograma siguiente. */
+  let enVuelo: Promise<unknown> | null = null;
 
   try {
     for (const [k, clip] of clips.entries()) {
@@ -98,12 +106,25 @@ export async function renderCutoutMasks(
       await wait(video, "loadeddata", 15000, true);
 
       const frames = Math.ceil((clip.out - clip.in) * fps);
+      const buscar = (i: number) => {
+        video.currentTime = clip.in + (i + 0.5) / fps;
+        return wait(video, "seeked", 4000);
+      };
       let conSilueta = 0;
+      let siguiente: Promise<void> | null = buscar(0);
+
       for (let i = 0; i < frames; i++) {
         if (isCancelled()) throw new Error("Exportación cancelada");
-        video.currentTime = clip.in + (i + 0.5) / fps;
-        await wait(video, "seeked", 4000);
+        await siguiente;
+        // La máscara se copia, así que el vídeo queda libre: mandamos ya la
+        // búsqueda del siguiente fotograma y la GPU trabaja mientras la CPU
+        // prepara este y lo escribe.
         const mask = segmenter.segment(video);
+        siguiente = i + 1 < frames ? buscar(i + 1) : null;
+        // Si abortamos, esa búsqueda queda a medias: la damos por atendida
+        // para que no salte como promesa rechazada sin dueño.
+        siguiente?.catch(() => {});
+
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, mw, mh);
         if (mask) {
@@ -126,14 +147,21 @@ export async function renderCutoutMasks(
           const r = fitRect(mask.width, mask.height, mw, mh, fit);
           ctx.drawImage(fuente, r.x, r.y, r.w, r.h);
         }
-        const blob = await new Promise<Blob>((resolve, reject) =>
-          lienzo.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo codificar la máscara"))), "image/png"),
-        );
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        await invoke("export_write_frame", bytes, {
+        // Del RGBA nos quedamos con un canal: la silueta es gris.
+        const rgba = ctx.getImageData(0, 0, mw, mh).data;
+        for (let j = 0, o = 0; j < gris.length; j++, o += 4) gris[j] = rgba[o];
+
+        // Los fotogramas van en fila en el mismo archivo, así que se escriben
+        // en orden: esperamos al anterior justo antes de mandar el siguiente.
+        if (enVuelo) await enVuelo;
+        enVuelo = invoke("export_write_raw", gris.slice(), {
           headers: { "x-segment": String(segmento), "x-frame": String(i) },
         });
         onProgress(++hechos / totalFrames);
+      }
+      if (enVuelo) {
+        await enVuelo;
+        enVuelo = null;
       }
       // Sin una sola silueta la capa saldría invisible: mejor avisar.
       if (conSilueta === 0) {
@@ -141,9 +169,10 @@ export async function renderCutoutMasks(
           `No se pudo recortar "${clip.name}": el segmentador no devolvió ninguna silueta.`,
         );
       }
-      out.set(clip.id, { pattern: `${base}/${segmento}/%05d.png`, fps, start: clip.start });
+      out.set(clip.id, { segment: segmento, fps, width: mw, height: mh });
     }
   } finally {
+    await enVuelo?.catch(() => {});
     video.removeAttribute("src");
     video.load();
   }

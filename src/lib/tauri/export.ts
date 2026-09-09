@@ -200,7 +200,6 @@ export async function renderOverlayAssets(
   const base = await invoke<string>("export_overlay_begin");
   const masks = await renderCutoutMasks(
     recortes,
-    base,
     0,
     size,
     project.fit,
@@ -212,35 +211,55 @@ export async function renderOverlayAssets(
   // Los parches se dibujan en la misma capa que los textos: así la posición,
   // el giro y el seguimiento salen exactamente igual que en el preview.
   const images = await loadPatchImages(patchClips);
-  const canvas = document.createElement("canvas");
-  canvas.width = size.width;
-  canvas.height = size.height;
-  const ctx = canvas.getContext("2d")!;
   const fps = size.fps;
+  // Dos lienzos que se van turnando: mientras uno se comprime a PNG y se
+  // escribe, el otro ya está dibujando el fotograma siguiente. Cada capa de
+  // texto es un archivo suelto, así que no importa en qué orden se escriban.
+  const lienzos = [0, 1].map(() => {
+    const c = document.createElement("canvas");
+    c.width = size.width;
+    c.height = size.height;
+    return { canvas: c, ctx: c.getContext("2d")! };
+  });
+  const trabajos: (Promise<void> | null)[] = [null, null];
 
   const ranges = segments.map(([s, e]) => ({ from: Math.floor(s * fps), to: Math.ceil(e * fps) }));
   const total = ranges.reduce((n, r) => n + (r.to - r.from), 0);
   let done = 0;
   const overlays: ExportOverlay[] = [];
 
-  for (const [k, r] of ranges.entries()) {
-    for (let i = 0; i < r.to - r.from; i++) {
-      if (isCancelled()) throw new Error("Exportación cancelada");
-      // Muestreamos en el centro del frame, igual que hará el vídeo.
-      const t = (r.from + i + 0.5) / fps;
-      ctx.clearRect(0, 0, size.width, size.height);
-      drawPatches(ctx, patchClips, images, t, size);
-      renderTextClips(ctx, textClips, t, size, false);
-      const blob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo codificar el PNG"))), "image/png"),
-      );
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      await invoke("export_write_frame", bytes, {
-        headers: { "x-segment": String(recortes.length + k), "x-frame": String(i) },
-      });
-      onProgress("text", ++done / total);
+  const escribir = async (canvas: HTMLCanvasElement, segmento: number, frame: number) => {
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo codificar el PNG"))), "image/png"),
+    );
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    await invoke("export_write_frame", bytes, {
+      headers: { "x-segment": String(segmento), "x-frame": String(frame) },
+    });
+    onProgress("text", ++done / total);
+  };
+
+  try {
+    for (const [k, r] of ranges.entries()) {
+      for (let i = 0; i < r.to - r.from; i++) {
+        if (isCancelled()) throw new Error("Exportación cancelada");
+        const turno = i % 2;
+        // Ese lienzo no se puede tocar hasta que se haya escrito lo anterior.
+        if (trabajos[turno]) await trabajos[turno];
+        const { canvas, ctx } = lienzos[turno];
+        // Muestreamos en el centro del frame, igual que hará el vídeo.
+        const t = (r.from + i + 0.5) / fps;
+        ctx.clearRect(0, 0, size.width, size.height);
+        drawPatches(ctx, patchClips, images, t, size);
+        renderTextClips(ctx, textClips, t, size, false);
+        trabajos[turno] = escribir(canvas, recortes.length + k, i);
+      }
+      await Promise.all(trabajos);
+      trabajos[0] = trabajos[1] = null;
+      overlays.push({ pattern: `${base}/${recortes.length + k}/%05d.png`, fps, start: r.from / fps });
     }
-    overlays.push({ pattern: `${base}/${recortes.length + k}/%05d.png`, fps, start: r.from / fps });
+  } finally {
+    await Promise.allSettled(trabajos);
   }
   return { overlays, masks };
 }
