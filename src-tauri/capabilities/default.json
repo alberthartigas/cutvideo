@@ -15,6 +15,9 @@
     "core:window:allow-start-resize-dragging",
     "updater:default",
     "core:app:allow-version",
-    "process:allow-restart"
+    "process:allow-restart",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized"
   ]
 }
