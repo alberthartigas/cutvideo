@@ -1,11 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Icono de CutVideo, trazado sobre las medidas del logotipo original:
-       la "C" cortada en tres piezas (cuerpo + dos trocitos) y el play. -->
-  <rect width="1024" height="1024" rx="229" fill="#ffffff"/>
-  <g fill="#0d1136">
-    <path d="M753.2 831.1A400.0 400.0 0 1 1 735.6 180.3L652.3 303.9A250.9 250.9 0 1 0 663.3 712.2Z"/>
-    <path d="M779.7 214.8A400.0 400.0 0 0 1 839.1 281.8L717.2 367.6A250.9 250.9 0 0 0 679.9 325.6Z"/>
-    <path d="M841.9 738.1A400.0 400.0 0 0 1 790.0 799.6L686.4 692.4A250.9 250.9 0 0 0 719.0 653.9Z"/>
+  <!-- Icono de CutVideo: la "C" del logotipo en blanco sobre el navy de marca,
+       para que se lea igual de bien en el Dock claro y en el oscuro.
+       El trazado sale de las medidas del logotipo original. -->
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161c4d"/>
+      <stop offset="1" stop-color="#0d1136"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="229" fill="url(#fondo)"/>
+  <g fill="#ffffff">
+    <path d="M717.0 783.3A340.0 340.0 0 1 1 702.0 230.1L631.2 335.1A213.3 213.3 0 1 0 640.6 682.2Z"/>
+    <path d="M739.6 259.4A340.0 340.0 0 0 1 790.1 316.3L686.4 389.3A213.3 213.3 0 0 0 654.8 353.5Z"/>
+    <path d="M792.4 704.2A340.0 340.0 0 0 1 748.3 756.5L660.2 665.4A213.3 213.3 0 0 0 687.9 632.6Z"/>
   </g>
-  <path fill="#7749e4" stroke="#7749e4" stroke-width="14" stroke-linejoin="round" d="M430.0 390.3L648.6 521.9L430.0 658.6Z"/>
+  <path fill="#7749e4" stroke="#7749e4" stroke-width="12" stroke-linejoin="round" d="M442.3 408.5L628.1 520.4L442.3 636.6Z"/>
 </svg>

@@ -2,24 +2,25 @@
   /**
    * Logotipo de CutVideo. La "C" está trazada sobre las medidas del logotipo
    * original: cuerpo del anillo más los dos trocitos cortados, y el play dentro.
-   * El mismo dibujo que el icono de la app (app-icon.svg).
+   * Mismo dibujo que el icono de la app (app-icon.svg); aquí la C toma el color
+   * del texto para que se lea en el tema claro y en el oscuro.
    */
   let { class: className = "h-5" }: { class?: string } = $props();
 </script>
 
 <svg class={className} viewBox="0 0 336 64" fill="none" role="img" aria-label="CutVideo">
-  <g transform="translate(32 32) scale(0.078) translate(-512 -512)">
+  <g transform="translate(32 32) scale(0.0918) translate(-512 -512)">
     <g fill="currentColor">
-      <path d="M753.2 831.1A400.0 400.0 0 1 1 735.6 180.3L652.3 303.9A250.9 250.9 0 1 0 663.3 712.2Z" />
-      <path d="M779.7 214.8A400.0 400.0 0 0 1 839.1 281.8L717.2 367.6A250.9 250.9 0 0 0 679.9 325.6Z" />
-      <path d="M841.9 738.1A400.0 400.0 0 0 1 790.0 799.6L686.4 692.4A250.9 250.9 0 0 0 719.0 653.9Z" />
+      <path d="M717.0 783.3A340.0 340.0 0 1 1 702.0 230.1L631.2 335.1A213.3 213.3 0 1 0 640.6 682.2Z" />
+      <path d="M739.6 259.4A340.0 340.0 0 0 1 790.1 316.3L686.4 389.3A213.3 213.3 0 0 0 654.8 353.5Z" />
+      <path d="M792.4 704.2A340.0 340.0 0 0 1 748.3 756.5L660.2 665.4A213.3 213.3 0 0 0 687.9 632.6Z" />
     </g>
     <path
       fill="var(--brand-violet)"
       stroke="var(--brand-violet)"
-      stroke-width="14"
+      stroke-width="12"
       stroke-linejoin="round"
-      d="M430.0 390.3L648.6 521.9L430.0 658.6Z"
+      d="M442.3 408.5L628.1 520.4L442.3 636.6Z"
     />
   </g>
   <text

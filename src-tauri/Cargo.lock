@@ -784,6 +784,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cutvideo"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "reqwest",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-shell",
+]
+
+[[package]]
 name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3158,22 +3174,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "quickcut"
-version = "0.1.0"
-dependencies = [
- "keyring",
- "reqwest",
- "rustfft",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-shell",
 ]
 
 [[package]]
