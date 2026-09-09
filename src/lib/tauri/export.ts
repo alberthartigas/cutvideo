@@ -45,18 +45,24 @@ export interface FrameSize {
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
-/** Tamaño "original": el del primer clip de vídeo, ya rotado según sus metadatos. */
+/**
+ * Tamaño "original": el mayor de los clips de vídeo del timeline (ya rotados
+ * según sus metadatos); los fps, los del primer clip.
+ */
 export function originalSize(): FrameSize | null {
-  const first = project.videoTrack.clips[0];
-  if (!first) return null;
-  const v = project.mediaOf(first)?.video;
-  if (!v || !v.width || !v.height) return null;
-  const rotated = v.rotation % 180 !== 0;
-  return {
-    width: even(rotated ? v.height : v.width),
-    height: even(rotated ? v.width : v.height),
-    fps: v.fps || 30,
-  };
+  let best: FrameSize | null = null;
+  for (const clip of project.videoTrack.clips) {
+    const v = project.mediaOf(clip)?.video;
+    if (!v || !v.width || !v.height) continue;
+    const rotated = v.rotation % 180 !== 0;
+    const size: FrameSize = {
+      width: even(rotated ? v.height : v.width),
+      height: even(rotated ? v.width : v.height),
+      fps: best?.fps ?? (v.fps || 30),
+    };
+    if (!best || size.width * size.height > best.width * best.height) best = size;
+  }
+  return best;
 }
 
 /** Escala manteniendo la proporción para que el lado corto mida `shortSide` (null = original). */

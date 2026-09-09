@@ -1,4 +1,9 @@
-/** Arrastre con pointer events: captura el puntero y avisa del desplazamiento. */
+/**
+ * Arrastre con pointer events: captura el puntero y avisa del desplazamiento.
+ * Los listeners van en `document`, no en el elemento: si el elemento se mueve
+ * en el DOM durante el arrastre el navegador suelta la captura, y aun así
+ * seguimos recibiendo los eventos.
+ */
 export interface DragHandlers {
   /** Primer movimiento real (más de 3 px): momento de guardar el estado para deshacer. */
   onStart?(e: PointerEvent): void;
@@ -12,9 +17,14 @@ export function startDrag(e: PointerEvent, handlers: DragHandlers) {
   const y0 = e.clientY;
   let moved = false;
 
-  el.setPointerCapture(e.pointerId);
+  try {
+    el.setPointerCapture(e.pointerId);
+  } catch {
+    /* sin captura también funciona gracias a los listeners en document */
+  }
 
   const onMove = (ev: PointerEvent) => {
+    if (ev.pointerId !== e.pointerId) return;
     const dx = ev.clientX - x0;
     const dy = ev.clientY - y0;
     if (!moved) {
@@ -25,13 +35,14 @@ export function startDrag(e: PointerEvent, handlers: DragHandlers) {
     handlers.onMove(dx, dy, ev);
   };
   const onUp = (ev: PointerEvent) => {
-    el.removeEventListener("pointermove", onMove);
-    el.removeEventListener("pointerup", onUp);
-    el.removeEventListener("pointercancel", onUp);
+    if (ev.pointerId !== e.pointerId) return;
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
     if (el.hasPointerCapture(ev.pointerId)) el.releasePointerCapture(ev.pointerId);
     handlers.onEnd?.(ev, moved);
   };
-  el.addEventListener("pointermove", onMove);
-  el.addEventListener("pointerup", onUp);
-  el.addEventListener("pointercancel", onUp);
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
 }

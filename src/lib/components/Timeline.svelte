@@ -11,13 +11,19 @@
     ZoomIn,
     ZoomOut,
   } from "@lucide/svelte";
-  import { project, ZOOM_MAX, ZOOM_MIN, type TrackKind } from "$lib/project.svelte";
+  import { project, ZOOM_MAX, ZOOM_MIN, type Clip, type TrackKind } from "$lib/project.svelte";
   import { startDrag } from "$lib/drag";
   import TimelineClip from "./TimelineClip.svelte";
 
   const RULER_H = 24;
   const TRACK_H: Record<TrackKind, number> = { video: 56, audio: 40 };
   const trackIcons = { video: Film, audio: Music } as const;
+
+  /**
+   * Los clips se pintan en orden estable (por id), no por posición: si el DOM se
+   * reordenara mientras se arrastra uno, el navegador soltaría la captura del puntero.
+   */
+  const stable = (clips: Clip[]) => [...clips].sort((a, b) => (a.id < b.id ? -1 : 1));
 
   let scroller = $state<HTMLDivElement>();
   let content = $state<HTMLDivElement>();
@@ -220,7 +226,7 @@
 
         {#each project.tracks as track (track.id)}
           <div data-track={track.id} class="track" style="height:{TRACK_H[track.kind]}px" role="listbox" tabindex="-1" aria-label={track.name}>
-            {#each track.clips as clip (clip.id)}
+            {#each stable(track.clips) as clip (clip.id)}
               <TimelineClip {clip} {track} />
             {/each}
             {#if track.magnetic && track.clips.length === 0}

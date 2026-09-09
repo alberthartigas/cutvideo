@@ -11,3 +11,6 @@ vite.config.ts.timestamp-*
 
 # Sidecars de FFmpeg (se generan con scripts/setup-ffmpeg.sh)
 /src-tauri/binaries/
+
+# Medios de prueba para el modo navegador (npm run dev sin Tauri)
+/static/dev-media/

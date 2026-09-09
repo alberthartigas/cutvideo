@@ -12,12 +12,16 @@
   let audioEl = $state<HTMLAudioElement>();
 
   let empty = $derived(project.clipCount === 0);
-  let hasVideo = $derived(project.clipAt(project.videoTrack, project.playhead) !== null);
+  let hasVideo = $derived(
+    project.clipAt(project.videoTrack, project.playhead) !== null ||
+      (!project.playing && project.playhead > 0 && project.clipAt(project.videoTrack, project.playhead - 1e-3) !== null),
+  );
 
   /** Ajusta un elemento multimedia a lo que toca en la pista en el instante `t`. */
   function sync(el: HTMLMediaElement | undefined, track: Track, t: number, playing: boolean) {
     if (!el) return;
-    const clip = project.clipAt(track, t);
+    // Parados justo al final del proyecto enseñamos el último frame, no negro.
+    const clip = project.clipAt(track, t) ?? (t > 0 && !playing ? project.clipAt(track, t - 1e-3) : null);
     if (!clip) {
       if (!el.paused) el.pause();
       return;

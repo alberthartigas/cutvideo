@@ -167,6 +167,15 @@
     font-size: 10px;
     color: var(--muted);
   }
+  /* La pista de audio es más baja: nombre y duración en una sola línea. */
+  .clip.audio .body {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .clip.audio .name {
+    min-width: 0;
+  }
   .handle {
     position: absolute;
     top: 0;

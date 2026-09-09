@@ -151,3 +151,33 @@ pub fn secret_status(kind: String, id: String) -> Result<SecretStatus, String> {
 pub fn secret_delete(kind: String, id: String) -> Result<(), String> {
     delete(SecretKind::parse(&kind)?, &id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ida y vuelta real contra el llavero del sistema. Se activa con QUICKCUT_KEYCHAIN_TEST=1
+    /// (crea y borra la entrada `api:selftest`; no toca ninguna clave del usuario).
+    #[test]
+    fn keychain_roundtrip() {
+        if std::env::var("QUICKCUT_KEYCHAIN_TEST").is_err() {
+            eprintln!("saltada: define QUICKCUT_KEYCHAIN_TEST=1");
+            return;
+        }
+        let id = "selftest";
+        delete(SecretKind::ApiKey, id).unwrap();
+        assert!(!status(SecretKind::ApiKey, id).unwrap().present);
+
+        set(SecretKind::ApiKey, id, "  sk-test-1234abcd  ").unwrap();
+        let st = status(SecretKind::ApiKey, id).unwrap();
+        assert!(st.present);
+        assert_eq!(st.hint.as_deref(), Some("…abcd"));
+        assert_eq!(get(SecretKind::ApiKey, id).unwrap().as_deref(), Some("sk-test-1234abcd"));
+
+        // Guardar vacío equivale a borrar.
+        set(SecretKind::ApiKey, id, "   ").unwrap();
+        assert!(!status(SecretKind::ApiKey, id).unwrap().present);
+        assert!(validate_id("Groq").is_err());
+        assert!(validate_id("groq").is_ok());
+    }
+}

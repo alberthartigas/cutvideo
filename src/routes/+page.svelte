@@ -72,10 +72,26 @@
     });
   }
 
+  /** true si el evento de teclado debe ir a un campo de texto o a un diálogo, no a los atajos. */
+  function keyHandledElsewhere(e: KeyboardEvent): boolean {
+    if (anyDialogOpen()) return true;
+    const target = e.target instanceof Element ? e.target : null;
+    return !!target?.closest("input, textarea, select, [contenteditable]");
+  }
+
+  /**
+   * Con un botón enfocado, el navegador convierte el keyup de espacio en un clic
+   * (y desharía el play/pausa del keydown). Lo cancelamos: espacio es siempre nuestro.
+   */
+  function onKeyUp(e: KeyboardEvent) {
+    if (isSpace(e) && !keyHandledElsewhere(e)) e.preventDefault();
+  }
+
+  // Algunos WebViews/automatizaciones envían `key` vacío: miramos también `code`.
+  const isSpace = (e: KeyboardEvent) => e.key === " " || e.code === "Space";
+
   function onKeyDown(e: KeyboardEvent) {
-    if (anyDialogOpen()) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest("input, textarea, select, [contenteditable]")) return;
+    if (keyHandledElsewhere(e)) return;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
 
@@ -97,11 +113,12 @@
     }
     if (mod) return;
 
+    if (isSpace(e)) {
+      e.preventDefault();
+      project.togglePlay();
+      return;
+    }
     switch (e.key) {
-      case " ":
-        e.preventDefault();
-        project.togglePlay();
-        break;
       case "s":
       case "S":
         project.splitAtPlayhead();
@@ -159,7 +176,7 @@
   });
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} />
 
 <div class="flex h-screen flex-col bg-bg text-text">
   <TitleBar />
