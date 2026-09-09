@@ -58,9 +58,11 @@
     try {
       const transcript = await transcribe({ provider, language: language || null, clips });
       const style = SUBTITLE_STYLES.find((s) => s.id === styleId) ?? SUBTITLE_STYLES[0];
+      // El input numérico puede quedar vacío o con basura: volvemos al valor por defecto.
+      const chars = Number.isFinite(maxChars) && maxChars >= 8 ? maxChars : 38;
       const cues = transcript.words.length
-        ? buildCues(transcript.words, { maxChars, ...style.cue })
-        : cuesFromSegments(transcript.segments, { maxChars });
+        ? buildCues(transcript.words, { maxChars: chars, ...style.cue })
+        : cuesFromSegments(transcript.segments, { maxChars: chars });
       // El estilo manda; el karaoke solo se añade a los estilos sin animación por palabra propia.
       const emphasis =
         style.data.emphasis !== "none" ? style.data.emphasis : karaoke && transcript.words.length ? "karaoke" : "none";
