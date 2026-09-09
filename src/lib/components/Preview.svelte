@@ -62,7 +62,7 @@
   $effect(() => {
     const ctx = textCanvas?.getContext("2d");
     if (!ctx) return;
-    renderTextClips(ctx, project.textTrack.clips, project.playhead, frame);
+    renderTextClips(ctx, project.textClips, project.playhead, frame);
   });
 
   // Reproduciendo: bucle con requestAnimationFrame.

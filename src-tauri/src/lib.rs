@@ -1,6 +1,7 @@
 mod export;
 mod media;
 mod secrets;
+mod transcribe;
 
 use tauri::Manager;
 
@@ -53,6 +54,7 @@ pub fn run() {
             secrets::secret_set,
             secrets::secret_status,
             secrets::secret_delete,
+            transcribe::transcribe,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

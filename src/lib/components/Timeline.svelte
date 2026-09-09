@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import {
+    Captions,
     Film,
     Maximize2,
     Music,
@@ -14,6 +15,7 @@
   } from "@lucide/svelte";
   import { project, ZOOM_MAX, ZOOM_MIN, type Clip, type TrackKind } from "$lib/project.svelte";
   import { startDrag } from "$lib/drag";
+  import { ui } from "$lib/ui.svelte";
   import TimelineClip from "./TimelineClip.svelte";
 
   const RULER_H = 24;
@@ -175,6 +177,10 @@
         <Type size={14} />
         <span>Texto</span>
       </button>
+      <button class="tool" title="Subtítulos automáticos" disabled={project.videoTrack.clips.length === 0} onclick={() => (ui.subtitlesOpen = true)}>
+        <Captions size={14} />
+        <span>Subtítulos</span>
+      </button>
     </div>
     <div class="flex items-center gap-1">
       <button class="tool" title="Alejar" onclick={() => zoomBy(1 / 1.5)}><ZoomOut size={14} /></button>
@@ -198,7 +204,7 @@
     <div class="border-r border-border bg-panel-2">
       <div class="border-b border-border" style="height:{RULER_H}px"></div>
       {#each project.tracks as track (track.id)}
-        {@const Icon = trackIcons[track.kind]}
+        {@const Icon = track.id === "s1" ? Captions : trackIcons[track.kind]}
         <div
           class="flex flex-col items-center justify-center gap-0.5 border-b border-border text-[10px] font-semibold text-muted"
           style="height:{TRACK_H[track.kind]}px"

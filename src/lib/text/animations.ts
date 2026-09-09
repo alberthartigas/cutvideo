@@ -30,13 +30,21 @@ export interface UnitState {
   highlight: number;
 }
 
+export interface AnimContext {
+  /** Segundos desde el inicio del clip. */
+  time: number;
+  duration: number;
+  /** Tiempos [inicio, fin] por palabra, relativos al clip (subtítulos transcritos). */
+  wordTimes?: [number, number][];
+}
+
 export interface TextAnimation {
   id: string;
   name: string;
   /** "inout" sirve de entrada y de salida; "emphasis" se aplica durante todo el clip. */
   kind: "inout" | "emphasis";
   unit: Unit;
-  state(p: number, u: UnitInfo): Partial<UnitState>;
+  state(p: number, u: UnitInfo, ctx: AnimContext): Partial<UnitState>;
 }
 
 export const BASE_STATE: UnitState = { opacity: 1, dx: 0, dy: 0, scale: 1, rotate: 0, blur: 0, highlight: 0 };
@@ -163,7 +171,12 @@ export const TEXT_ANIMATIONS: TextAnimation[] = [
     name: "Karaoke",
     kind: "emphasis",
     unit: "word",
-    state: (p, u) => ({ highlight: clamp01(p * u.n - u.i) }),
+    state: (p, u, ctx) => {
+      // Con tiempos reales por palabra (transcripción) el resaltado va sincronizado.
+      const wt = ctx.wordTimes?.[u.i];
+      if (wt) return { highlight: clamp01((ctx.time - wt[0]) / 0.12) };
+      return { highlight: clamp01(p * u.n - u.i) };
+    },
   },
 ];
 

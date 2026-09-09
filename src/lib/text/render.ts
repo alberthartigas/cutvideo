@@ -1,4 +1,4 @@
-import { BASE_STATE, getAnimation, type TextAnimation, type UnitState } from "./animations";
+import { BASE_STATE, getAnimation, type AnimContext, type TextAnimation, type UnitState } from "./animations";
 import { layoutText, type LayoutChar, type TextLayout } from "./layout";
 import type { TextData } from "./styles";
 
@@ -81,11 +81,12 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
   }
   const emphasis = data.emphasis !== "none" ? getAnimation(data.emphasis) : null;
   const ep = duration > 0 ? u / duration : 1;
+  const anim: AnimContext = { time: u, duration, wordTimes: data.wordTimes };
 
   const states: UnitState[] = layout.chars.map((c) => {
     const s = { ...BASE_STATE };
-    if (phase) Object.assign(s, phase.state(p, unitInfo(phase, c, layout)));
-    if (emphasis) Object.assign(s, emphasis.state(ep, unitInfo(emphasis, c, layout)));
+    if (phase) Object.assign(s, phase.state(p, unitInfo(phase, c, layout), anim));
+    if (emphasis) Object.assign(s, emphasis.state(ep, unitInfo(emphasis, c, layout), anim));
     return s;
   });
 

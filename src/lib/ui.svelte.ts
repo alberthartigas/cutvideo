@@ -2,6 +2,7 @@
 export const ui = $state({
   settingsOpen: false,
   exportOpen: false,
+  subtitlesOpen: false,
 });
 
-export const anyDialogOpen = () => ui.settingsOpen || ui.exportOpen;
+export const anyDialogOpen = () => ui.settingsOpen || ui.exportOpen || ui.subtitlesOpen;

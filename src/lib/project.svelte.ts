@@ -77,6 +77,7 @@ class ProjectStore {
   media = $state<MediaInfo[]>([]);
   tracks = $state<Track[]>([
     { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
+    { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
     { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
     { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
   ]);
@@ -99,7 +100,14 @@ class ProjectStore {
   clipCount = $derived(this.tracks.reduce((n, t) => n + t.clips.length, 0));
   videoTrack = $derived(this.tracks.find((t) => t.kind === "video")!);
   audioTrack = $derived(this.tracks.find((t) => t.kind === "audio")!);
-  textTrack = $derived(this.tracks.find((t) => t.kind === "text")!);
+  /** Pista de títulos (T1). */
+  textTrack = $derived(this.tracks.find((t) => t.id === "t1")!);
+  /** Pista de subtítulos (S1). */
+  subtitleTrack = $derived(this.tracks.find((t) => t.id === "s1")!);
+  /** Todas las pistas de texto, de abajo arriba en el timeline (la primera se pinta encima). */
+  textTracks = $derived(this.tracks.filter((t) => t.kind === "text"));
+  /** Clips de texto de todas las pistas, en el orden en que se pintan (subtítulos debajo de los títulos). */
+  textClips = $derived([...this.textTracks].reverse().flatMap((t) => t.clips));
   selected = $derived.by(() => (this.selectedId ? this.findClip(this.selectedId) : null));
   /** Tamaño del frame del proyecto: el mayor de los clips de vídeo (ya rotados); 1080p si no hay. */
   frame = $derived.by((): FrameSize => {
@@ -253,6 +261,25 @@ class ProjectStore {
     this.#sort(track);
     this.selectedId = clip.id;
     return clip;
+  }
+
+  /** Sustituye los subtítulos (pista S1) por `cues`, ya ordenados y sin solapes. */
+  setSubtitles(cues: { text: string; start: number; end: number; wordTimes?: [number, number][] }[], style: TextData) {
+    this.commit();
+    const track = this.subtitleTrack;
+    track.clips = cues.map((cue) => ({
+      id: newId(),
+      mediaPath: "",
+      name: cue.text.split("\n")[0].trim() || "Subtítulo",
+      kind: "text" as const,
+      sourceDuration: Number.POSITIVE_INFINITY,
+      fps: 30,
+      start: cue.start,
+      in: 0,
+      out: Math.max(MIN_CLIP, cue.end - cue.start),
+      text: { ...style, text: cue.text, wordTimes: cue.wordTimes },
+    }));
+    this.selectedId = null;
   }
 
   /** Cambia propiedades de un texto. Llamar a `commit()` antes del primer cambio de una edición. */

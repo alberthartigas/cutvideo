@@ -127,7 +127,6 @@ pub fn status(kind: SecretKind, id: &str) -> Result<SecretStatus, String> {
 }
 
 /// Atajo para los proveedores de IA: la clave de API guardada, si la hay.
-#[allow(dead_code)]
 pub fn api_key(provider: &str) -> Result<Option<String>, String> {
     get(SecretKind::ApiKey, provider)
 }

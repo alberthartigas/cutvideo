@@ -42,7 +42,7 @@ pub struct ExportClip {
 }
 
 impl ExportClip {
-    fn duration(&self) -> f64 {
+    pub(crate) fn duration(&self) -> f64 {
         (self.out - self.in_sec).max(0.0)
     }
 }
@@ -100,7 +100,7 @@ enum RunError {
     Failed(String),
 }
 
-fn sec(v: f64) -> String {
+pub(crate) fn sec(v: f64) -> String {
     format!("{v:.4}")
 }
 

@@ -84,9 +84,32 @@ export function installDevMock() {
       case "cancel_export":
         return null;
       case "secret_status":
-        return { kind: "api", id: args.id, present: false, hint: null };
+        // Simulamos que hay clave de Groq para poder probar el flujo de subtítulos.
+        return { kind: "api", id: args.id, present: args.id === "groq", hint: args.id === "groq" ? "…mock" : null };
       case "secret_set":
         return { kind: "api", id: args.id, present: true, hint: "…mock" };
+      case "transcribe": {
+        await sleep(800);
+        const text =
+          "Hola, esto es una prueba de subtítulos automáticos generados con QuickCut. Cada palabra lleva su tiempo y el karaoke va sincronizado. Funciona de maravilla, ¿verdad?";
+        let t = 0.3;
+        const words = text.split(" ").map((word) => {
+          const start = t;
+          t += 0.28 + word.length * 0.03;
+          const w = { word, start, end: t };
+          if (/[.?!]$/.test(word)) t += 0.5;
+          return w;
+        });
+        return {
+          text,
+          language: "es",
+          duration: t,
+          words,
+          segments: [{ start: 0.3, end: t, text }],
+          provider: (args.request as { provider: string }).provider,
+          model: "simulado",
+        };
+      }
       case "export_video": {
         await sleep(1200);
         const plan = args.plan as { output: string };

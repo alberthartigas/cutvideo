@@ -110,7 +110,7 @@ export async function renderTextOverlays(
   onProgress: (fraction: number) => void,
   isCancelled: () => boolean,
 ): Promise<ExportOverlay[]> {
-  const clips = project.textTrack.clips;
+  const clips = project.textClips;
   const segments = textSegments(clips);
   if (segments.length === 0) return [];
 

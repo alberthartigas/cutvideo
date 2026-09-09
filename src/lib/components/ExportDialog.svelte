@@ -34,7 +34,7 @@
   let presets = $derived(orig ? PRESETS.filter((p) => p < Math.min(orig.width, orig.height)) : []);
   let size = $derived(orig ? targetSize(orig, shortSide) : null);
   let running = $derived(phase.kind === "running");
-  let textCount = $derived(project.textTrack.clips.length);
+  let textCount = $derived(project.textClips.length);
 
   let remaining = $derived.by(() => {
     if (phase.kind !== "running" || phase.stage !== "ffmpeg" || phase.percent < 2) return null;

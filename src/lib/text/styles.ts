@@ -26,6 +26,8 @@ export interface TextData {
   emphasis: string;
   inDur: number;
   outDur: number;
+  /** Subtítulos: [inicio, fin] de cada palabra en segundos relativos al clip (para el karaoke exacto). */
+  wordTimes?: [number, number][];
 }
 
 export const FONTS: { label: string; value: string }[] = [

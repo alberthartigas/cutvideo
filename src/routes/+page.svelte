@@ -9,6 +9,7 @@
   import TextInspector from "$lib/components/TextInspector.svelte";
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
+  import SubtitlesDialog from "$lib/components/SubtitlesDialog.svelte";
   import {
     ffmpegVersion,
     pickMediaFiles,
@@ -287,5 +288,8 @@
   {/if}
   {#if ui.exportOpen}
     <ExportDialog />
+  {/if}
+  {#if ui.subtitlesOpen}
+    <SubtitlesDialog />
   {/if}
 </div>
