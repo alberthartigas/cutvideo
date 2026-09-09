@@ -8,14 +8,14 @@
   import { transitionFrame } from "$lib/transitions/presets";
   import { effectsCss, effectsVignette } from "$lib/effects/presets";
   import { patchAt } from "$lib/patches/types";
-  import { ChromaRenderer } from "$lib/preview/chroma-gl";
+  import { LayerRenderer } from "$lib/preview/layer-gl";
+  import VideoLayer from "./VideoLayer.svelte";
 
   // Capas, de abajo arriba: fondo (F1) → vídeo (V1, con croma si lo tiene) →
   // parches (P1) → textos y subtítulos. Se sustituirá por el motor WebCodecs
   // cuando todo el render pase a la GPU.
   let videoA = $state<HTMLVideoElement>();
   let videoB = $state<HTMLVideoElement>();
-  let bgEl = $state<HTMLVideoElement>();
   let chromaCanvas = $state<HTMLCanvasElement>();
   let flashEl = $state<HTMLDivElement>();
   let vignetteEl = $state<HTMLDivElement>();
@@ -23,7 +23,7 @@
   let stageW = $state(0);
   let stageH = $state(0);
   const slots: { clipId: string | null }[] = [{ clipId: null }, { clipId: null }];
-  let chroma: ChromaRenderer | undefined;
+  let chroma: LayerRenderer | undefined;
   let chromaOk = $state(false);
 
   let empty = $derived(project.clipCount === 0);
@@ -114,7 +114,7 @@
 
     // Croma: el vídeo se pinta en el canvas WebGL y el <video> se esconde.
     const keyed = active?.effects?.chroma?.enabled === true && !tr && chromaOk;
-    if (keyed && elA && chromaCanvas) chroma?.draw(elA, active!.effects!.chroma!);
+    if (keyed && elA && chromaCanvas) chroma?.draw(elA, { chroma: active!.effects!.chroma });
     if (chromaCanvas) {
       chromaCanvas.style.visibility = keyed ? "visible" : "hidden";
       chromaCanvas.style.filter = keyed && active ? (effectsCss(active.effects, viewH) || "none") : "none";
@@ -159,21 +159,6 @@
     }
   }
 
-  /** Pista de fondo (F1): lo que se ve por detrás de la pantalla verde. */
-  function syncBackground(t: number, playing: boolean) {
-    const el = bgEl;
-    if (!el) return;
-    const clip = lastFrameClip(project.backgroundTrack, t, playing);
-    if (!clip) {
-      el.style.visibility = "hidden";
-      if (!el.paused) el.pause();
-      return;
-    }
-    el.style.visibility = "visible";
-    el.style.filter = effectsCss(clip.effects, viewH) || "none";
-    syncClip(el, clip, t, playing);
-  }
-
   /** Pista de audio libre: un solo elemento, parado si no hay clip. */
   function syncAudio(t: number, playing: boolean) {
     const el = audioEl;
@@ -191,14 +176,13 @@
   // WebGL se prepara una vez, cuando aparece el canvas.
   $effect(() => {
     if (!chromaCanvas) return;
-    chroma ??= new ChromaRenderer(chromaCanvas);
+    chroma ??= new LayerRenderer(chromaCanvas);
     chromaOk = chroma.init();
   });
 
   // Parados: cada cambio del playhead (o de los clips) actualiza el frame.
   $effect(() => {
     if (project.playing) return;
-    syncBackground(project.playhead, false);
     syncVideo(project.playhead, false);
     syncAudio(project.playhead, false);
   });
@@ -224,7 +208,6 @@
         return;
       }
       project.playhead = t;
-      syncBackground(t, true);
       syncVideo(t, true);
       syncAudio(t, true);
       raf = requestAnimationFrame(tick);
@@ -233,7 +216,6 @@
       cancelAnimationFrame(raf);
       videoA?.pause();
       videoB?.pause();
-      bgEl?.pause();
       audioEl?.pause();
     };
   });
@@ -251,8 +233,8 @@
         class="canvas absolute overflow-hidden"
         style="left:{Math.round((stageW - viewW) / 2)}px; top:{Math.round((stageH - viewH) / 2)}px; width:{viewW}px; height:{viewH}px"
       >
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={bgEl} playsinline preload="auto" muted style="{BASE_STYLE}visibility:hidden"></video>
+        <!-- Fondo (F1), por detrás de todo -->
+        <VideoLayer track={project.backgroundTrack} time={project.playhead} playing={project.playing} {viewH} fit={project.fit} />
         <!-- svelte-ignore a11y_media_has_caption -->
         <video bind:this={videoA} playsinline preload="auto" style="{BASE_STYLE}visibility:hidden"></video>
         <!-- svelte-ignore a11y_media_has_caption -->
@@ -268,6 +250,10 @@
           style="opacity:0;background:radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.85) 100%)"
         ></div>
         <div bind:this={flashEl} class="pointer-events-none absolute inset-0" style="opacity:0"></div>
+        <!-- Capas superpuestas: la última de la lista queda arriba, así que se pintan al revés -->
+        {#each [...project.overlayTracks].reverse() as track (track.id)}
+          <VideoLayer {track} time={project.playhead} playing={project.playing} {viewH} fit={project.fit} />
+        {/each}
         {#each patches as p (p.id)}
           <img
             src={p.src}

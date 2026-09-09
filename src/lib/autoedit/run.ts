@@ -6,6 +6,7 @@ import { transcribe, type TranscribeProvider } from "$lib/tauri/transcribe";
 import type { Word } from "$lib/subtitles/cues";
 import { DEFAULT_TEXT, type TextData } from "$lib/text/styles";
 import { getTransition } from "$lib/transitions/presets";
+import { autoLayers } from "./layers";
 
 // Espejo de src-tauri/src/analyze.rs, music_rights.rs y ai.rs.
 export interface Silence {
@@ -147,6 +148,12 @@ export interface AutoEditOptions {
   syncToBeat: boolean;
   addSubtitles: boolean;
   subtitleStyle: string;
+  /** Prepara las capas superpuestas: croma, recorte de personas o imagen en imagen. */
+  useLayers: boolean;
+  /** Sube al montaje las escenas que estén en medios pero sin usar. */
+  addSpareScenes: boolean;
+  /** Cuántas escenas de sobra como mucho. */
+  maxSpareScenes: number;
   useAi: boolean;
   style: string;
   language: string;
@@ -166,6 +173,9 @@ export const DEFAULT_AUTOEDIT: AutoEditOptions = {
   syncToBeat: true,
   addSubtitles: true,
   subtitleStyle: "karaoke",
+  useLayers: true,
+  addSpareScenes: true,
+  maxSpareScenes: 2,
   useAi: true,
   style: "dinámico, para redes sociales",
   language: "es",
@@ -180,6 +190,8 @@ export interface AutoEditResult {
   transitions: number;
   subtitles: number;
   texts: number;
+  /** Capas preparadas: croma, recortes, imagen en imagen y escenas añadidas. */
+  layers: { chromaed: number; cutout: number; pip: number; added: number };
   bpm: number | null;
   plan: EditPlan | null;
   /** Avisos para enseñar al final (p. ej. que el ritmo no estaba claro). */
@@ -214,6 +226,7 @@ export async function runAutoEdit(
     transitions: 0,
     subtitles: 0,
     texts: 0,
+    layers: { chromaed: 0, cutout: 0, pip: 0, added: 0 },
     bpm: null,
     plan: null,
     notes: [],
@@ -284,7 +297,29 @@ export async function runAutoEdit(
     result.transitions = project.videoTrack.clips.length - 1;
   }
 
-  // 5) Subtítulos.
+  // 5) Capas superpuestas: croma, recorte de personas o imagen en imagen.
+  if (options.useLayers) {
+    try {
+      result.layers = await autoLayers(
+        {
+          addSpare: options.addSpareScenes,
+          maxSpare: Math.max(0, Math.min(3, options.maxSpareScenes)),
+          beats,
+        },
+        onStep,
+      );
+      const { chromaed, cutout, pip, added } = result.layers;
+      if (chromaed + cutout + pip + added === 0 && project.overlayTracks.every((t) => !t.clips.length)) {
+        result.notes.push(
+          "No había nada que encimar: manda un clip a una capa (O1/O2) desde Medios para superponer escenas.",
+        );
+      }
+    } catch (e) {
+      result.notes.push(`No se pudieron preparar las capas: ${e}`);
+    }
+  }
+
+  // 6) Subtítulos.
   let transcriptText = "";
   let lastWords: Word[] = [];
   if (options.addSubtitles) {
@@ -306,7 +341,7 @@ export async function runAutoEdit(
     }
   }
 
-  // 6) Título y frases destacadas con IA.
+  // 7) Título y frases destacadas con IA.
   if (options.useAi) {
     const local = options.aiProvider === "none";
     onStep(local ? "Redactando los textos…" : "Pidiendo el plan de edición…");

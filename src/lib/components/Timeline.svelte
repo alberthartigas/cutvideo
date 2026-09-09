@@ -4,6 +4,7 @@
     Captions,
     Film,
     Image,
+    Layers,
     Maximize2,
     Music,
     Redo2,
@@ -24,7 +25,7 @@
   const TRACK_H: Record<TrackKind, number> = { text: 36, image: 40, video: 56, audio: 40 };
   const trackIcons = { text: Type, image: Sticker, video: Film, audio: Music } as const;
   /** Iconos propios de las pistas que no se distinguen por su tipo. */
-  const specialIcons: Record<string, typeof Film> = { s1: Captions, f1: Image };
+  const specialIcons: Record<string, typeof Film> = { s1: Captions, f1: Image, o1: Layers, o2: Layers };
 
   /**
    * Los clips se pintan en orden estable (por id), no por posición: si el DOM se

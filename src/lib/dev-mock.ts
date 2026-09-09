@@ -48,6 +48,7 @@ const FILES: MediaInfo[] = [
   fake("sticker.png", 0, { width: 512, height: 512, fps: 0 }, false, true),
   fake("verde.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
   fake("fondo.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
+  fake("persona.mp4", 3, { width: 640, height: 360, fps: 25 }, false),
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -91,6 +92,19 @@ export function installDevMock() {
       case "export_overlay_begin":
         return "/tmp/cutvideo-mock-overlay";
       case "export_write_frame":
+        // Guardamos los frames en `window.__frames` (base64) para poder mirar
+        // las máscaras y los textos desde la consola sin exportar de verdad.
+        if (payload instanceof Uint8Array) {
+          const w = window as unknown as { __frames?: string[] };
+          const frames = (w.__frames ??= []);
+          // En trozos, que un PNG de 4K no cabe de una en fromCharCode.
+          let bin = "";
+          for (let i = 0; i < payload.length; i += 8192) {
+            bin += String.fromCharCode(...payload.subarray(i, i + 8192));
+          }
+          if (frames.length < 400) frames.push(btoa(bin));
+        }
+        return null;
       case "export_overlay_end":
       case "plugin:event|unlisten":
       case "plugin:window|set_theme":

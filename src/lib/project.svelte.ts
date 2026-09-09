@@ -6,6 +6,7 @@ import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffect
 import { DEFAULT_CHROMA, type ChromaKey } from "$lib/effects/chroma";
 import { DEFAULT_PATCH, type PatchData } from "$lib/patches/types";
 import { frameForAspect, type AspectId, type FitMode } from "$lib/aspect";
+import { DEFAULT_LAYOUT, OVERLAY_TRACK_IDS, type ClipLayout } from "$lib/layers";
 
 /** Duración por defecto de un parche recién puesto (s). */
 const PATCH_DEFAULT_DURATION = 4;
@@ -36,6 +37,8 @@ export interface Clip {
   effects?: ClipEffects;
   /** Solo en clips de imagen (kind === "image"): colocación y seguimiento. */
   patch?: PatchData;
+  /** Solo en las capas superpuestas (O1, O2): dónde y cómo se ve la capa. */
+  layout?: ClipLayout;
 }
 
 export interface ActiveTransition {
@@ -109,6 +112,9 @@ export function defaultTracks(): Track[] {
     { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
     { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
     { id: "p1", kind: "image", name: "P1", magnetic: false, clips: [] },
+    // Capas superpuestas: se ven por encima del vídeo principal (O1 tapa a O2).
+    { id: "o1", kind: "video", name: "O1", magnetic: false, clips: [] },
+    { id: "o2", kind: "video", name: "O2", magnetic: false, clips: [] },
     { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
     { id: "f1", kind: "video", name: "F1", magnetic: false, clips: [] },
     { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
@@ -161,6 +167,8 @@ class ProjectStore {
   patchTrack = $derived(this.#track("p1"));
   /** Pista de fondo, por debajo del vídeo (F1): lo que se ve tras la pantalla verde. */
   backgroundTrack = $derived(this.#track("f1"));
+  /** Capas superpuestas al vídeo principal, de arriba abajo (O1 tapa a O2). */
+  overlayTracks = $derived(OVERLAY_TRACK_IDS.map((id) => this.#track(id)));
   /** Todas las pistas de texto, de abajo arriba en el timeline (la primera se pinta encima). */
   textTracks = $derived(this.tracks.filter((t) => t.kind === "text"));
   /** Clips de texto de todas las pistas, en el orden en que se pintan (subtítulos debajo de los títulos). */
@@ -335,6 +343,45 @@ class ProjectStore {
     }
     this.selectedId = clip.id;
     return clip;
+  }
+
+  /**
+   * Pone un vídeo o una imagen en una capa superpuesta (O1 u O2).
+   * Si no se dice cuál, usa la primera que esté libre en ese instante.
+   */
+  addOverlay(info: MediaInfo, at = this.playhead, trackId?: string): Clip | null {
+    if (!info.video) return null;
+    const duration = info.isImage ? 4 : info.durationSec;
+    const asked = trackId ? this.tracks.find((t) => t.id === trackId) : undefined;
+    const libre = this.overlayTracks.find(
+      (t) => !t.clips.some((c) => at < clipEnd(c) && at + duration > c.start),
+    );
+    const track = asked ?? libre ?? this.overlayTracks[0];
+    const clip: Clip = {
+      id: newId(),
+      mediaPath: info.path,
+      name: info.fileName,
+      kind: "video",
+      sourceDuration: info.isImage ? Number.POSITIVE_INFINITY : info.durationSec,
+      fps: info.video.fps || 30,
+      start: 0,
+      in: 0,
+      out: duration,
+      layout: { ...DEFAULT_LAYOUT },
+    };
+    this.commit();
+    clip.start = this.#freeStart(track, duration, at);
+    track.clips.push(clip);
+    this.#sort(track);
+    this.selectedId = clip.id;
+    return clip;
+  }
+
+  /** Cambia la colocación de una capa superpuesta. */
+  updateLayout(clipId: string, patch: Partial<ClipLayout>) {
+    const ref = this.findClip(clipId);
+    if (!ref) return;
+    ref.clip.layout = { ...DEFAULT_LAYOUT, ...ref.clip.layout, ...patch };
   }
 
   /** Pone un vídeo o una imagen en la pista de fondo (F1), por detrás del vídeo. */

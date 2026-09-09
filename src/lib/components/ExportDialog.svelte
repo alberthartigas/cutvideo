@@ -4,13 +4,15 @@
   import { project } from "$lib/project.svelte";
   import {
     buildExportPlan,
+    cutoutClips,
+    overlayLayerClips,
     cancelExport,
     endTextOverlays,
     exportVideo,
     onExportProgress,
     originalSize,
     pickOutputPath,
-    renderTextOverlays,
+    renderOverlayAssets,
     revealInFolder,
     RESOLUTIONS,
     targetSize,
@@ -21,9 +23,18 @@
 
   type Phase =
     | { kind: "idle" }
-    | { kind: "running"; stage: "text" | "ffmpeg"; percent: number; speed: number | null; startedAt: number }
+    | { kind: "running"; stage: "mask" | "text" | "ffmpeg"; percent: number; speed: number | null; startedAt: number }
     | { kind: "done"; result: ExportResult }
     | { kind: "error"; message: string };
+
+  const ETAPAS = {
+    mask: "Recortando personas…",
+    text: "Renderizando textos…",
+    ffmpeg: "Codificando…",
+  } as const;
+
+  let capas = $derived(overlayLayerClips().length);
+  let recortes = $derived(cutoutClips().length);
 
   let phase = $state<Phase>({ kind: "idle" });
   let shortSide = $state<number | null>(null);
@@ -50,13 +61,13 @@
     const output = await pickOutputPath("CutVideo.mp4");
     if (!output) return;
     cancelled = false;
-    phase = { kind: "running", stage: "text", percent: 0, speed: null, startedAt: Date.now() };
+    phase = { kind: "running", stage: cutoutClips().length ? "mask" : "text", percent: 0, speed: null, startedAt: Date.now() };
     let unlisten: (() => void) | null = null;
     try {
-      const overlays = await renderTextOverlays(
+      const assets = await renderOverlayAssets(
         target,
-        (f) => {
-          if (phase.kind === "running") phase = { ...phase, stage: "text", percent: f * 100 };
+        (stage, f) => {
+          if (phase.kind === "running") phase = { ...phase, stage, percent: f * 100 };
         },
         () => cancelled,
       );
@@ -64,7 +75,7 @@
       unlisten = await onExportProgress((p) => {
         if (phase.kind === "running") phase = { ...phase, stage: "ffmpeg", percent: p.percent, speed: p.speed };
       });
-      const result = await exportVideo(buildExportPlan(output, target, encoder, overlays));
+      const result = await exportVideo(buildExportPlan(output, target, encoder, assets));
       phase = { kind: "done", result };
     } catch (e) {
       phase = cancelled ? { kind: "idle" } : { kind: "error", message: String(e) };
@@ -132,7 +143,11 @@
           <p class="text-xs text-muted">
             {size.width}×{size.height} · {Math.round(size.fps * 100) / 100} fps · H.264 + AAC ·
             {formatDuration(project.duration)} · {project.videoTrack.clips.length}
-            {project.videoTrack.clips.length === 1 ? "clip" : "clips"}{textCount ? ` · ${textCount} ${textCount === 1 ? "texto" : "textos"}` : ""}
+            {project.videoTrack.clips.length === 1 ? "clip" : "clips"}{capas
+              ? ` · ${capas} ${capas === 1 ? "capa" : "capas"}`
+              : ""}{recortes ? ` (${recortes} con recorte)` : ""}{textCount
+              ? ` · ${textCount} ${textCount === 1 ? "texto" : "textos"}`
+              : ""}
           </p>
           <div class="flex justify-end gap-2">
             <button class="btn" onclick={close}>Cancelar</button>
@@ -142,7 +157,7 @@
       {:else if phase.kind === "running"}
         <div class="flex items-center gap-2">
           <LoaderCircle size={16} class="animate-spin text-accent" />
-          <span>{phase.stage === "text" ? "Renderizando textos…" : "Codificando…"} {phase.percent.toFixed(0)}%</span>
+          <span>{ETAPAS[phase.stage]} {phase.percent.toFixed(0)}%</span>
           <span class="ml-auto text-xs text-muted">
             {#if phase.speed}{phase.speed.toFixed(1)}× ·{/if}
             {#if remaining !== null}quedan {formatDuration(remaining).slice(0, -3)}{/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, Image as ImageIcon, Plus } from "@lucide/svelte";
+  import { FolderOpen, Image as ImageIcon, Layers, Plus } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project } from "$lib/project.svelte";
   import { formatDuration } from "$lib/format";
@@ -37,7 +37,7 @@
     {#each project.media as item (item.path)}
       <li class="relative">
         <button
-          class="media-item pr-16"
+          class="media-item pr-24"
           class:active={selected?.path === item.path}
           onclick={() => (selected = item)}
           ondblclick={() => project.addClip(item)}
@@ -58,6 +58,13 @@
               onclick={() => project.addBackground(item)}
             >
               <ImageIcon size={13} />
+            </button>
+            <button
+              class="tool h-6 w-6 justify-center px-0"
+              title="Poner encima como capa (O1/O2): imagen en imagen o recorte"
+              onclick={() => project.addOverlay(item)}
+            >
+              <Layers size={13} />
             </button>
           {/if}
           <button

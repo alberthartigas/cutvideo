@@ -17,7 +17,12 @@
   let adjust = $derived<Adjustments>(target?.effects?.adjust ?? DEFAULT_ADJUSTMENTS);
   let chroma = $derived(target?.effects?.chroma ?? DEFAULT_CHROMA);
   // Sin nada en la pista de fondo, quitar el verde solo deja negro.
-  let noBackground = $derived(chroma.enabled && project.backgroundTrack.clips.length === 0);
+  // En una capa superpuesta lo que se ve por detrás es el vídeo principal;
+  // en la pista principal hace falta poner algo en F1.
+  let enCapa = $derived(["o1", "o2"].includes(project.selected?.track.id ?? ""));
+  let noBackground = $derived(
+    chroma.enabled && !enCapa && project.backgroundTrack.clips.length === 0,
+  );
 
   const SLIDERS: { key: keyof Adjustments; label: string; min: number; max: number; step: number }[] = [
     { key: "brightness", label: "Brillo", min: -0.6, max: 0.6, step: 0.02 },
@@ -110,7 +115,8 @@
       {#if noBackground}
         <p class="flex gap-1 text-[11px] text-amber-600 dark:text-amber-400">
           <TriangleAlert size={12} class="mt-0.5 shrink-0" />
-          Pon una imagen o un vídeo en la pista F1 para que se vea por detrás; si no, el fondo queda negro.
+          Pon una imagen o un vídeo en la pista F1 para que se vea por detrás; si no, el fondo queda
+          negro. También puedes mandar este clip a una capa (O1/O2) para que se vea el vídeo principal.
         </p>
       {/if}
     {/if}

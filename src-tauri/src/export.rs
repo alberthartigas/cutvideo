@@ -29,6 +29,28 @@ pub struct ExportOverlay {
     pub start: f64,
 }
 
+/// Colocación de una capa dentro del frame (centro y tamaño normalizados).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportLayout {
+    pub x: f64,
+    pub y: f64,
+    pub scale: f64,
+    pub opacity: f64,
+}
+
+/// Clip de una pista superpuesta (O1/O2): va encima del vídeo principal,
+/// colocado según `layout` y recortado por croma y/o por la máscara de persona.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportLayer {
+    pub clip: ExportClip,
+    pub layout: ExportLayout,
+    /// Secuencia PNG en gris con la silueta (blanco = se ve), o null.
+    #[serde(default)]
+    pub mask: Option<ExportOverlay>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportClip {
@@ -84,6 +106,9 @@ pub struct ExportPlan {
     /// Clips de la pista de fondo (F1): se ven por detrás de la pantalla verde.
     #[serde(default)]
     pub background: Vec<ExportClip>,
+    /// Capas superpuestas (O2 primero, O1 encima), en orden de dibujo.
+    #[serde(default)]
+    pub layers: Vec<ExportLayer>,
     /// "auto" (hardware si lo hay) o "x264".
     pub encoder: String,
     /// "cover" recorta lo que sobra; "contain" deja franjas.
@@ -191,6 +216,7 @@ fn total_duration(plan: &ExportPlan) -> f64 {
     let video = video_length(&plan.video);
     plan.audio
         .iter()
+        .chain(plan.layers.iter().map(|l| &l.clip))
         .map(|c| c.start + c.duration())
         .fold(video, f64::max)
 }
@@ -216,6 +242,25 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
             sec(c.duration()),
             "-i".into(),
             c.path.clone(),
+        ]);
+    }
+    for l in &plan.layers {
+        args.extend([
+            "-ss".into(),
+            sec(l.clip.in_sec),
+            "-t".into(),
+            sec(l.clip.duration()),
+            "-i".into(),
+            l.clip.path.clone(),
+        ]);
+    }
+    // Máscaras de recorte: secuencias PNG en gris.
+    for m in plan.layers.iter().filter_map(|l| l.mask.as_ref()) {
+        args.extend([
+            "-framerate".into(),
+            format!("{:.3}", m.fps),
+            "-i".into(),
+            m.pattern.clone(),
         ]);
     }
     // Capas de texto: secuencias PNG con alfa.
@@ -331,9 +376,71 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         base = format!("bgm{k}");
     }
     filters.push(format!("[{base}][vpad]overlay=eof_action=pass:format=auto[vcomp]"));
-    // Superponemos cada capa de texto y parches desplazada a su instante.
+
+    // Capas superpuestas (O2, luego O1): se colocan, se recortan y se encadenan.
+    let layer_first = bg_first + plan.background.len();
+    let mask_first = layer_first + plan.layers.len();
     let mut last = String::from("vcomp");
-    let first_overlay_input = plan.video.len() + plan.audio.len();
+    let mut mask_n = 0usize;
+    for (k, l) in plan.layers.iter().enumerate() {
+        let idx = layer_first + k;
+        // La caja de la capa es el frame escalado por `scale`, centrado en (x, y).
+        let scale = l.layout.scale.clamp(0.02, 4.0);
+        let bw = ((plan.width as f64 * scale) as u32).max(2) & !1;
+        let bh = ((plan.height as f64 * scale) as u32).max(2) & !1;
+        let bx = ((l.layout.x - scale / 2.0) * plan.width as f64).round() as i64;
+        let by = ((l.layout.y - scale / 2.0) * plan.height as f64).round() as i64;
+        let fx = safe_filters(&l.clip.filters).map(|f| format!(",{f}")).unwrap_or_default();
+        let chroma = safe_chroma(&l.clip.chroma).map(|f| format!(",{f}")).unwrap_or_default();
+        // La capa se encaja en su caja igual que en el preview (rellenar/encajar).
+        let caja = if plan.fit == "contain" {
+            format!(
+                "scale={bw}:{bh}:force_original_aspect_ratio=decrease:flags=bicubic,\
+                 pad={bw}:{bh}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+            )
+        } else {
+            format!("scale={bw}:{bh}:force_original_aspect_ratio=increase:flags=bicubic,crop={bw}:{bh}")
+        };
+        filters.push(format!(
+            "[{idx}:v]setpts=PTS-STARTPTS+{}/TB,{caja},setsar=1,fps={fps}{fx}{chroma},format=rgba[ly{k}]",
+            sec(l.clip.start)
+        ));
+        let mut cur = format!("ly{k}");
+        if l.mask.is_some() {
+            let midx = mask_first + mask_n;
+            mask_n += 1;
+            filters.push(format!(
+                "[{midx}:v]setpts=PTS-STARTPTS+{}/TB,scale={bw}:{bh}:flags=bilinear,\
+                 format=gray,fps={fps}[lm{k}]",
+                sec(l.clip.start)
+            ));
+            if chroma.is_empty() {
+                filters.push(format!("[{cur}][lm{k}]alphamerge[lc{k}]"));
+            } else {
+                // Con croma ya hay alfa: la multiplicamos por la silueta.
+                filters.push(format!("[{cur}]split[lp{k}][lq{k}]"));
+                filters.push(format!("[lq{k}]alphaextract[la{k}]"));
+                filters.push(format!("[la{k}][lm{k}]blend=all_mode=multiply[lb{k}]"));
+                filters.push(format!("[lp{k}][lb{k}]alphamerge[lc{k}]"));
+            }
+            cur = format!("lc{k}");
+        }
+        let opacity = l.layout.opacity.clamp(0.0, 1.0);
+        if opacity < 0.999 {
+            filters.push(format!("[{cur}]colorchannelmixer=aa={opacity:.3}[lo{k}]"));
+            cur = format!("lo{k}");
+        }
+        filters.push(format!(
+            "[{last}][{cur}]overlay=x={bx}:y={by}:eof_action=pass:format=auto:\
+             enable='between(t,{},{})'[lv{k}]",
+            sec(l.clip.start),
+            sec(l.clip.start + l.clip.duration())
+        ));
+        last = format!("lv{k}");
+    }
+
+    // Superponemos cada capa de texto y parches desplazada a su instante.
+    let first_overlay_input = mask_first + mask_n;
     for (k, ov) in plan.overlays.iter().enumerate() {
         let idx = first_overlay_input + k;
         filters.push(format!("[{idx}:v]setpts=PTS-STARTPTS+{}/TB[ov{k}]", sec(ov.start)));
@@ -653,6 +760,7 @@ mod tests {
                 encoder: "x264".into(),
                 fit: fit.into(),
                 overlays: vec![],
+                layers: vec![],
             };
             let status = std::process::Command::new(&ffmpeg)
                 .args(build_args(&plan, Encoder::X264))
@@ -677,6 +785,131 @@ mod tests {
             let negro = o.stdout.iter().all(|&c| c < 40);
             assert_eq!(negro, esquina_negra, "fit={fit} dio {:?} arriba", o.stdout);
         }
+    }
+
+
+    /// Dos capas encimadas: la de abajo recortada por máscara y la de arriba
+    /// por pantalla verde. Cada zona del frame tiene que enseñar lo suyo.
+    #[test]
+    fn stacked_layers_composite_with_chroma_and_mask() {
+        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("CUTVIDEO_FFMPEG"), std::env::var("CUTVIDEO_TEST_DIR")) else {
+            eprintln!("saltada: define CUTVIDEO_FFMPEG y CUTVIDEO_TEST_DIR");
+            return;
+        };
+        let p = |name: &str| format!("{dir}/{name}");
+        let lavfi = |filtro: &str, salida: &str| {
+            let ok = std::process::Command::new(&ffmpeg)
+                .args(["-v", "error", "-y", "-f", "lavfi", "-i", filtro,
+                       "-c:v", "libx264", "-pix_fmt", "yuv420p", salida])
+                .status()
+                .expect("generar el clip");
+            assert!(ok.success());
+        };
+        let (base, magenta, verde) = (p("cap-base.mp4"), p("cap-mag.mp4"), p("cap-verde.mp4"));
+        let amarillo = p("cap-ama.mp4");
+        lavfi("color=c=blue:s=320x240:r=25:d=3", &base);
+        lavfi("color=c=magenta:s=320x240:r=25:d=2", &magenta);
+        lavfi("color=c=yellow:s=320x240:r=25:d=1", &amarillo);
+        lavfi(
+            "color=c=0x00b140:s=320x240:r=25:d=2,drawbox=x=130:y=90:w=60:h=60:color=red:t=fill",
+            &verde,
+        );
+
+        // Máscara: blanca en la mitad izquierda, negra en la derecha.
+        let mask_dir = p("cap-mask");
+        std::fs::create_dir_all(&mask_dir).unwrap();
+        let ok = std::process::Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i",
+                   "color=c=black:s=160x120:r=25:d=2,drawbox=x=0:y=0:w=80:h=120:color=white:t=fill",
+                   "-pix_fmt", "gray", "-start_number", "0",
+                   &format!("{mask_dir}/%05d.png")])
+            .status()
+            .expect("generar la máscara");
+        assert!(ok.success());
+
+        let out = p("cap-out.mp4");
+        let plan = ExportPlan {
+            output: out.clone(),
+            width: 320,
+            height: 240,
+            fps: 25.0,
+            video: vec![clip(&base, 0.0, 3.0, 0.0, false)],
+            audio: vec![],
+            background: vec![],
+            layers: vec![
+                // Abajo: magenta a pantalla completa, recortado por la máscara.
+                ExportLayer {
+                    clip: clip(&magenta, 0.0, 2.0, 0.0, false),
+                    layout: ExportLayout { x: 0.5, y: 0.5, scale: 1.0, opacity: 1.0 },
+                    mask: Some(ExportOverlay {
+                        pattern: format!("{mask_dir}/%05d.png"),
+                        fps: 25.0,
+                        start: 0.0,
+                    }),
+                },
+                // Encima: pantalla verde a media escala, en el centro.
+                ExportLayer {
+                    clip: ExportClip {
+                        chroma: Some("format=yuva420p,chromakey=0x00b140:0.3:0.08".into()),
+                        ..clip(&verde, 0.0, 2.0, 0.0, false)
+                    },
+                    layout: ExportLayout { x: 0.5, y: 0.5, scale: 0.5, opacity: 1.0 },
+                    mask: None,
+                },
+                // Escena de relleno que entra a mitad de vídeo, en una esquina.
+                ExportLayer {
+                    clip: clip(&amarillo, 0.0, 1.0, 2.0, false),
+                    layout: ExportLayout { x: 0.8, y: 0.8, scale: 0.3, opacity: 1.0 },
+                    mask: None,
+                },
+            ],
+            encoder: "x264".into(),
+            fit: "cover".into(),
+            overlays: vec![],
+        };
+        let status = std::process::Command::new(&ffmpeg)
+            .args(build_args(&plan, Encoder::X264))
+            .status()
+            .expect("ejecutar ffmpeg");
+        assert!(status.success(), "ffmpeg falló componiendo las capas");
+
+        // Color medio de un cuadradito del frame en el instante que se pida.
+        let en = |t: &str, x: u32, y: u32| -> (u8, u8, u8) {
+            let o = std::process::Command::new(&ffmpeg)
+                .args(["-v", "error", "-ss", t, "-i", &out, "-frames:v", "1", "-vf",
+                       &format!("crop=10:10:{x}:{y},scale=1:1"),
+                       "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+                .output()
+                .unwrap();
+            let b = o.stdout;
+            assert!(b.len() >= 3, "no se pudo leer el píxel en {x},{y}");
+            (b[0], b[1], b[2])
+        };
+        let px = |x: u32, y: u32| en("1", x, y);
+        let magenta_p = |c: (u8, u8, u8)| c.0 > 150 && c.1 < 90 && c.2 > 150;
+        let azul_p = |c: (u8, u8, u8)| c.0 < 90 && c.1 < 90 && c.2 > 140;
+        let rojo_p = |c: (u8, u8, u8)| c.0 > 150 && c.1 < 90 && c.2 < 90;
+
+        let izq = px(20, 20);
+        assert!(magenta_p(izq), "la máscara debía dejar magenta a la izquierda, dio {izq:?}");
+        let der = px(280, 20);
+        assert!(azul_p(der), "a la derecha la máscara tapa: debía verse el vídeo, dio {der:?}");
+        let centro = px(155, 115);
+        assert!(rojo_p(centro), "el croma debía dejar el cuadrado rojo, dio {centro:?}");
+        // Dentro de la caja del croma pero fuera del rojo: se ve la capa de abajo.
+        let dentro = px(95, 115);
+        assert!(magenta_p(dentro), "el verde debía ser transparente, dio {dentro:?}");
+
+        // La escena de relleno solo debe verse a partir de su segundo 2.
+        let amarillo_p = |c: (u8, u8, u8)| c.0 > 150 && c.1 > 150 && c.2 < 90;
+        let antes = en("1", 250, 190);
+        assert!(azul_p(antes), "la escena de relleno no debía verse todavía, dio {antes:?}");
+        let despues = en("2.5", 250, 190);
+        assert!(amarillo_p(despues), "la escena de relleno debía estar en la esquina, dio {despues:?}");
+        // Y al entrar no debe tapar el resto del frame; a esas alturas la capa
+        // de magenta ya se ha acabado, así que ahí se ve el vídeo principal.
+        let fuera = en("2.5", 40, 190);
+        assert!(azul_p(fuera), "la esquina no debía extenderse, dio {fuera:?}");
     }
 
     /// La pantalla verde debe dejar ver la pista de fondo por detrás.
@@ -717,6 +950,7 @@ mod tests {
             encoder: "x264".into(),
             fit: "cover".into(),
             overlays: vec![],
+            layers: vec![],
         };
         let status = std::process::Command::new(&ffmpeg)
             .args(build_args(&plan, Encoder::X264))
@@ -783,6 +1017,7 @@ mod tests {
             ],
             audio: vec![clip(&p("music.mp3"), 0.0, 5.0, 1.5, true)],
             background: vec![clip(&p("clipB.mp4"), 0.0, 3.0, 0.0, false)],
+            layers: vec![],
             encoder: "x264".into(),
             fit: "cover".into(),
             overlays: vec![ExportOverlay { pattern, fps: 30.0, start: 1.0 }],

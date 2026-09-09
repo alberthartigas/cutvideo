@@ -9,6 +9,7 @@
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
   import TextInspector from "$lib/components/TextInspector.svelte";
   import TransitionPanel from "$lib/components/TransitionPanel.svelte";
+  import LayerInspector from "$lib/components/LayerInspector.svelte";
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import SubtitlesDialog from "$lib/components/SubtitlesDialog.svelte";
@@ -47,6 +48,8 @@
   let transitionNext = $derived(
     inspectorClip && project.selected?.track.magnetic ? project.nextClip(inspectorClip) : null,
   );
+  // Las capas superpuestas se colocan (tamaño, posición) y pueden recortarse.
+  let esCapa = $derived(["o1", "o2"].includes(project.selected?.track.id ?? ""));
 
   // Las miniaturas de transiciones y efectos usan frames reales del proyecto.
   $effect(() => {
@@ -272,6 +275,9 @@
         {#if inspectorClip?.kind === "text"}
           <TextInspector clip={inspectorClip} />
         {:else}
+          {#if inspectorClip && esCapa}
+            <LayerInspector clip={inspectorClip} />
+          {/if}
           {#if inspectorClip && transitionNext}
             <TransitionPanel clip={inspectorClip} next={transitionNext} />
           {/if}

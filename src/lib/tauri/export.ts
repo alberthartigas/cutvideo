@@ -8,6 +8,8 @@ import { getTransition } from "$lib/transitions/presets";
 import { effectsFfmpeg } from "$lib/effects/presets";
 import { chromaFfmpeg } from "$lib/effects/chroma";
 import { drawPatches, loadPatchImages } from "$lib/patches/render";
+import { renderCutoutMasks, type MaskSequence } from "$lib/segment/masks";
+import { DEFAULT_LAYOUT } from "$lib/layers";
 
 export type { FrameSize };
 
@@ -32,6 +34,21 @@ export interface ExportOverlay {
   start: number;
 }
 
+export interface ExportLayer {
+  clip: ExportClip;
+  layout: { x: number; y: number; scale: number; opacity: number };
+  /** Secuencia PNG en gris con la silueta de la persona, o null. */
+  mask?: MaskSequence | null;
+}
+
+/** Todo lo que hay que renderizar antes de llamar a ffmpeg. */
+export interface OverlayAssets {
+  overlays: ExportOverlay[];
+  masks: Map<string, MaskSequence>;
+}
+
+export const NO_ASSETS: OverlayAssets = { overlays: [], masks: new Map() };
+
 export type ExportEncoder = "auto" | "x264";
 
 export interface ExportPlan {
@@ -45,6 +62,7 @@ export interface ExportPlan {
   encoder: ExportEncoder;
   fit: "cover" | "contain";
   overlays: ExportOverlay[];
+  layers: ExportLayer[];
 }
 
 export interface ExportProgress {
@@ -82,11 +100,21 @@ export function targetSize(orig: FrameSize, shortSide: number | null): FrameSize
   return { width: even(orig.width * scale), height: even(orig.height * scale), fps: orig.fps };
 }
 
+/** Clips de las capas superpuestas, de abajo arriba (O2 primero, O1 encima). */
+export function overlayLayerClips(): Clip[] {
+  return [...project.overlayTracks].reverse().flatMap((t) => t.clips);
+}
+
+/** Clips de capa que llevan recorte de persona activado. */
+export function cutoutClips(): Clip[] {
+  return overlayLayerClips().filter((c) => c.layout?.cutout);
+}
+
 export function buildExportPlan(
   output: string,
   size: FrameSize,
   encoder: ExportEncoder,
-  overlays: ExportOverlay[],
+  assets: OverlayAssets,
 ): ExportPlan {
   const toClip = (c: Clip): ExportClip => ({
     path: c.mediaPath,
@@ -119,9 +147,22 @@ export function buildExportPlan(
       filters: effectsFfmpeg(c.effects, size.height) || null,
     })),
     audio: project.audioTrack.clips.map(toClip),
+    layers: overlayLayerClips().map((c): ExportLayer => {
+      const l = { ...DEFAULT_LAYOUT, ...c.layout };
+      return {
+        clip: {
+          ...toClip(c),
+          hasAudio: false, // Las capas van mudas, igual que en el preview.
+          filters: effectsFfmpeg(c.effects, size.height) || null,
+          chroma: chromaFfmpeg(c.effects?.chroma) || null,
+        },
+        layout: { x: l.x, y: l.y, scale: l.scale, opacity: l.opacity },
+        mask: assets.masks.get(c.id) ?? null,
+      };
+    }),
     encoder,
     fit: project.fit,
-    overlays,
+    overlays: assets.overlays,
   };
 }
 
@@ -141,24 +182,36 @@ function overlaySegments(clips: Clip[]): [number, number][] {
 }
 
 /**
- * Renderiza los textos a secuencias PNG con alfa (una por tramo con texto) y las
- * deja en una carpeta temporal para que ffmpeg las superponga. Devuelve las capas.
+ * Renderiza a PNG todo lo que ffmpeg no sabe hacer: las siluetas de los
+ * recortes de persona y las capas de texto y parches. Comparten carpeta
+ * temporal, así que las máscaras ocupan los primeros segmentos.
  */
-export async function renderTextOverlays(
+export async function renderOverlayAssets(
   size: FrameSize,
-  onProgress: (fraction: number) => void,
+  onProgress: (stage: "mask" | "text", fraction: number) => void,
   isCancelled: () => boolean,
-): Promise<ExportOverlay[]> {
+): Promise<OverlayAssets> {
   const textClips = project.textClips;
   const patchClips = project.patchTrack.clips;
-  const clips = [...patchClips, ...textClips];
-  const segments = overlaySegments(clips);
-  if (segments.length === 0) return [];
+  const segments = overlaySegments([...patchClips, ...textClips]);
+  const recortes = cutoutClips();
+  if (segments.length === 0 && recortes.length === 0) return NO_ASSETS;
+
+  const base = await invoke<string>("export_overlay_begin");
+  const masks = await renderCutoutMasks(
+    recortes,
+    base,
+    0,
+    size,
+    project.fit,
+    (f) => onProgress("mask", f),
+    isCancelled,
+  );
+  if (segments.length === 0) return { overlays: [], masks };
+
   // Los parches se dibujan en la misma capa que los textos: así la posición,
   // el giro y el seguimiento salen exactamente igual que en el preview.
   const images = await loadPatchImages(patchClips);
-
-  const base = await invoke<string>("export_overlay_begin");
   const canvas = document.createElement("canvas");
   canvas.width = size.width;
   canvas.height = size.height;
@@ -182,12 +235,14 @@ export async function renderTextOverlays(
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo codificar el PNG"))), "image/png"),
       );
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      await invoke("export_write_frame", bytes, { headers: { "x-segment": String(k), "x-frame": String(i) } });
-      onProgress(++done / total);
+      await invoke("export_write_frame", bytes, {
+        headers: { "x-segment": String(recortes.length + k), "x-frame": String(i) },
+      });
+      onProgress("text", ++done / total);
     }
-    overlays.push({ pattern: `${base}/${k}/%05d.png`, fps, start: r.from / fps });
+    overlays.push({ pattern: `${base}/${recortes.length + k}/%05d.png`, fps, start: r.from / fps });
   }
-  return overlays;
+  return { overlays, masks };
 }
 
 export function endTextOverlays(): Promise<void> {

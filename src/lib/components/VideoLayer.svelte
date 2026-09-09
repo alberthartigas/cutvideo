@@ -1,0 +1,110 @@
+<script lang="ts">
+  import { clipEnd, project, type Clip, type Track } from "$lib/project.svelte";
+  import { mediaSrc } from "$lib/tauri/media";
+  import { effectsCss, effectsVignette } from "$lib/effects/presets";
+  import { DEFAULT_LAYOUT } from "$lib/layers";
+  import { LayerRenderer } from "$lib/preview/layer-gl";
+  import { segmenter } from "$lib/segment/segmenter.svelte";
+
+  /**
+   * Una capa de vídeo del preview (fondo o superpuesta). Se encarga de
+   * sincronizar el clip con el playhead y de aplicarle pantalla verde y/o
+   * recorte de persona, que necesitan pintar en un canvas.
+   */
+  let {
+    track,
+    time,
+    playing,
+    viewH,
+    fit = "cover",
+  }: { track: Track; time: number; playing: boolean; viewH: number; fit?: string } = $props();
+
+  let videoEl = $state<HTMLVideoElement>();
+  let canvasEl = $state<HTMLCanvasElement>();
+  let renderer: LayerRenderer | undefined;
+  let glOk = $state(false);
+
+  /** Clip visible ahora; parados enseñamos el último frame en vez de negro. */
+  let clip = $derived.by(() => {
+    const at = project.clipAt(track, time);
+    if (at) return at;
+    return time > 0 && !playing ? project.clipAt(track, time - 1e-3) : null;
+  });
+  let layout = $derived({ ...DEFAULT_LAYOUT, ...clip?.layout });
+  let needsCanvas = $derived(!!clip && (clip.effects?.chroma?.enabled === true || layout.cutout));
+
+  $effect(() => {
+    if (!canvasEl) return;
+    renderer ??= new LayerRenderer(canvasEl);
+    glOk = renderer.init();
+  });
+
+  // El recorte carga el modelo la primera vez que se usa.
+  $effect(() => {
+    if (layout.cutout) segmenter.load();
+  });
+
+  $effect(() => {
+    const el = videoEl;
+    if (!el) return;
+    if (!clip) {
+      if (!el.paused) el.pause();
+      return;
+    }
+    const src = mediaSrc(clip.mediaPath);
+    if (el.dataset.src !== src) {
+      el.dataset.src = src;
+      el.src = src;
+    }
+    const expected = clip.in + (time - clip.start);
+    if (Math.abs(el.currentTime - expected) > (playing ? 0.15 : 0.02)) el.currentTime = expected;
+    if (playing) {
+      if (el.paused) el.play().catch(() => {});
+    } else if (!el.paused) {
+      el.pause();
+    }
+
+    if (needsCanvas && glOk) {
+      const mask = layout.cutout && segmenter.ready ? segmenter.segment(el) : null;
+      renderer?.draw(el, { chroma: clip.effects?.chroma, mask, feather: layout.feather });
+    }
+  });
+
+  /** Caja de la capa dentro del frame, en porcentaje. */
+  let box = $derived({
+    left: (layout.x - layout.scale / 2) * 100,
+    top: (layout.y - layout.scale / 2) * 100,
+    size: layout.scale * 100,
+  });
+  let filtro = $derived(clip ? effectsCss(clip.effects, viewH) : "");
+  let vineta = $derived(clip ? effectsVignette(clip.effects) : 0);
+  // Con canvas el vídeo se esconde: lo que se ve es el canvas ya recortado.
+  let usaCanvas = $derived(needsCanvas && glOk);
+</script>
+
+<div
+  class="absolute"
+  style="left:{box.left}%; top:{box.top}%; width:{box.size}%; height:{box.size}%;
+         opacity:{clip ? layout.opacity : 0}; {filtro ? `filter:${filtro};` : ''}"
+>
+  <!-- svelte-ignore a11y_media_has_caption -->
+  <video
+    bind:this={videoEl}
+    playsinline
+    preload="auto"
+    muted={track.id !== "v1"}
+    class="absolute inset-0 h-full w-full"
+    style="object-fit:{fit};visibility:{clip && !usaCanvas ? 'visible' : 'hidden'}"
+  ></video>
+  <canvas
+    bind:this={canvasEl}
+    class="pointer-events-none absolute inset-0 h-full w-full"
+    style="object-fit:{fit};visibility:{usaCanvas ? 'visible' : 'hidden'}"
+  ></canvas>
+  {#if vineta > 0}
+    <div
+      class="pointer-events-none absolute inset-0"
+      style="opacity:{vineta};background:radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.85) 100%)"
+    ></div>
+  {/if}
+</div>

@@ -70,6 +70,10 @@
         {#if r.transitions}<li>· {r.transitions} transiciones</li>{/if}
         {#if r.subtitles}<li>· {r.subtitles} subtítulos</li>{/if}
         {#if r.texts}<li>· {r.texts} textos</li>{/if}
+        {#if r.layers.added}<li>· {r.layers.added} escenas encimadas</li>{/if}
+        {#if r.layers.chromaed}<li>· {r.layers.chromaed} con la pantalla verde quitada</li>{/if}
+        {#if r.layers.cutout}<li>· {r.layers.cutout} con la persona recortada</li>{/if}
+        {#if r.layers.pip}<li>· {r.layers.pip} en imagen en imagen</li>{/if}
         {#if r.bpm}<li>· música a {r.bpm.toFixed(0)} BPM</li>{/if}
       </ul>
       {#if r.plan}
@@ -141,6 +145,23 @@
       {/if}
 
       <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.syncToBeat} /> Cortar al ritmo de la música</label>
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useLayers} /> Montar escenas encima</label>
+      {#if o.useLayers}
+        <p class="sub text-[10px] leading-snug">
+          Quita la pantalla verde, recorta a las personas y pone en una esquina lo que taparía el vídeo.
+        </p>
+        <label class="row pl-[22px] text-muted">
+          <input type="checkbox" class="accent-accent" bind:checked={o.addSpareScenes} /> Usar los medios sin montar
+        </label>
+        {#if o.addSpareScenes}
+          <label class="sub">
+            <span>Como mucho</span>
+            <input class="flex-1 accent-accent" type="range" min="1" max="3" step="1" bind:value={o.maxSpareScenes} />
+            <span class="w-12 text-right tabular-nums">{o.maxSpareScenes}</span>
+          </label>
+        {/if}
+      {/if}
+
       <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.addSubtitles} /> Subtítulos automáticos</label>
       {#if o.addSubtitles}
         <label class="sub">
