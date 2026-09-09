@@ -547,6 +547,16 @@ class ProjectStore {
     }
     track.clips = out;
     this.#relayout(track);
+
+    // Lo que va encima o detrás del vídeo tiene que seguir al corte: si no,
+    // una capa colocada en el segundo 8 se quedaría donde ya no hay nada.
+    const quitadoAntes = (t: number) =>
+      merged.reduce((n, [s, e]) => n + Math.max(0, Math.min(e, t) - Math.min(s, t)), 0);
+    for (const otra of [...this.overlayTracks, this.backgroundTrack]) {
+      for (const c of otra.clips) c.start = Math.max(0, c.start - quitadoAntes(c.start));
+      this.#sort(otra);
+    }
+
     this.selectedId = null;
     return removed;
   }

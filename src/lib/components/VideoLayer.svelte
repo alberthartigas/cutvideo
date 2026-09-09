@@ -64,11 +64,21 @@
       el.pause();
     }
 
-    if (needsCanvas && glOk) {
-      const mask = layout.cutout && segmenter.ready ? segmenter.segment(el) : null;
-      renderer?.draw(el, { chroma: clip.effects?.chroma, mask, feather: layout.feather });
-    }
+    pintar();
   });
+
+  /**
+   * Pinta el frame actual con croma y/o recorte. Se llama desde el efecto (que
+   * corre con cada cambio del playhead) y también cuando el vídeo avisa de que
+   * ya tiene imagen: al cargar o al terminar de buscar, el efecto ya ha pasado
+   * y sin esto la capa se quedaría en blanco hasta el siguiente cambio.
+   */
+  function pintar() {
+    const el = videoEl;
+    if (!el || !clip || !renderer || !needsCanvas || !glOk) return;
+    const mask = layout.cutout && segmenter.ready ? segmenter.segment(el) : null;
+    renderer.draw(el, { chroma: clip.effects?.chroma, mask, feather: layout.feather });
+  }
 
   /** Caja de la capa dentro del frame, en porcentaje. */
   let box = $derived({
@@ -92,6 +102,8 @@
     bind:this={videoEl}
     playsinline
     preload="auto"
+    onloadeddata={pintar}
+    onseeked={pintar}
     muted={track.id !== "v1"}
     class="absolute inset-0 h-full w-full"
     style="object-fit:{fit};visibility:{clip && !usaCanvas ? 'visible' : 'hidden'}"
