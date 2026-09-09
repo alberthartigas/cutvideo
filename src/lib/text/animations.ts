@@ -22,12 +22,16 @@ export interface UnitState {
   dx: number;
   dy: number;
   scale: number;
+  scaleX: number;
+  scaleY: number;
   /** Grados. */
   rotate: number;
   /** Desenfoque en "em". */
   blur: number;
   /** 0–1: mezcla hacia el color de resaltado. */
   highlight: number;
+  /** 0–1: caja de color detrás de la palabra (estilo "palabra resaltada"). */
+  box: number;
 }
 
 export interface AnimContext {
@@ -47,7 +51,12 @@ export interface TextAnimation {
   state(p: number, u: UnitInfo, ctx: AnimContext): Partial<UnitState>;
 }
 
-export const BASE_STATE: UnitState = { opacity: 1, dx: 0, dy: 0, scale: 1, rotate: 0, blur: 0, highlight: 0 };
+export const BASE_STATE: UnitState = {
+  opacity: 1, dx: 0, dy: 0, scale: 1, scaleX: 1, scaleY: 1, rotate: 0, blur: 0, highlight: 0, box: 0,
+};
+
+/** Progreso 0→1 de una ventana de `len` segundos que empieza en `start` (para animar palabras al pronunciarse). */
+const window01 = (time: number, start: number, len: number) => clamp01((time - start) / len);
 
 export const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 export const easeOut = (x: number) => 1 - Math.pow(1 - clamp01(x), 3);
@@ -167,6 +176,71 @@ export const TEXT_ANIMATIONS: TextAnimation[] = [
     },
   },
   {
+    id: "fadezoom",
+    name: "Fundido con zoom",
+    kind: "inout",
+    unit: "block",
+    state: (p) => ({ opacity: p, scale: 0.8 + 0.2 * easeOut(p) }),
+  },
+  {
+    id: "bounce",
+    name: "Rebote",
+    kind: "inout",
+    unit: "word",
+    state: (p, u) => {
+      const l = stagger(p, u.i, u.n, 0.6);
+      return { dy: -(1 - spring(l, 11, 0.4)) * 1.2, opacity: Math.min(1, l * 3) };
+    },
+  },
+  {
+    id: "zoom",
+    name: "Zoom",
+    kind: "inout",
+    unit: "block",
+    state: (p) => ({ scale: 1 + (1 - easeOut(p)) * 1.5, opacity: p }),
+  },
+  {
+    id: "spin",
+    name: "Giro",
+    kind: "inout",
+    unit: "word",
+    state: (p, u) => {
+      const l = easeOut(stagger(p, u.i, u.n, 0.6));
+      return { rotate: (1 - l) * -90, scale: 0.4 + 0.6 * l, opacity: l };
+    },
+  },
+  {
+    id: "flash",
+    name: "Flash",
+    kind: "inout",
+    unit: "block",
+    state: (p) => ({ opacity: p >= 1 ? 1 : noise(3, Math.floor(p * 10)) > 0.45 ? 1 : 0.15 }),
+  },
+  {
+    id: "stretch",
+    name: "Estirar",
+    kind: "inout",
+    unit: "block",
+    state: (p) => ({ scaleX: 1 + (1 - easeOut(p)) * 1.6, opacity: p }),
+  },
+  {
+    id: "elastic",
+    name: "Elástico",
+    kind: "inout",
+    unit: "word",
+    state: (p, u) => {
+      const l = stagger(p, u.i, u.n, 0.5);
+      return { scaleX: spring(l, 9, 0.3), scaleY: spring(l, 10, 0.35), opacity: Math.min(1, l * 4) };
+    },
+  },
+  {
+    id: "wipe",
+    name: "Barrido (máscara)",
+    kind: "inout",
+    unit: "char",
+    state: (p, u) => ({ opacity: clamp01((p * (u.n + 2) - u.i) / 2) }),
+  },
+  {
     id: "karaoke",
     name: "Karaoke",
     kind: "emphasis",
@@ -176,6 +250,79 @@ export const TEXT_ANIMATIONS: TextAnimation[] = [
       const wt = ctx.wordTimes?.[u.i];
       if (wt) return { highlight: clamp01((ctx.time - wt[0]) / 0.12) };
       return { highlight: clamp01(p * u.n - u.i) };
+    },
+  },
+  {
+    id: "wordbox",
+    name: "Palabra en caja",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const wt = ctx.wordTimes?.[u.i];
+      const next = ctx.wordTimes?.[u.i + 1];
+      if (wt) {
+        const end = next ? next[0] : wt[1] + 0.3;
+        return { box: ctx.time >= wt[0] && ctx.time < end ? 1 : 0 };
+      }
+      return { box: Math.floor(p * u.n) === u.i ? 1 : 0 };
+    },
+  },
+  {
+    id: "wordpop",
+    name: "Pop por palabra",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const wt = ctx.wordTimes?.[u.i];
+      const start = wt ? wt[0] : (u.i / u.n) * ctx.duration;
+      const l = window01(ctx.time, start, 0.28);
+      return { scale: 1 + 0.3 * (1 - easeOut(l)) * (ctx.time >= start ? 1 : 0), highlight: ctx.time >= start ? 1 : 0 };
+    },
+  },
+  {
+    id: "wordbounce",
+    name: "Rebote por palabra",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const wt = ctx.wordTimes?.[u.i];
+      const start = wt ? wt[0] : (u.i / u.n) * ctx.duration;
+      const l = window01(ctx.time, start, 0.32);
+      return { dy: -Math.sin(l * Math.PI) * 0.25, highlight: ctx.time >= start ? 1 : 0 };
+    },
+  },
+  {
+    id: "shake",
+    name: "Temblor",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const k = Math.floor(ctx.time * 24);
+      return { dx: (noise(u.i, k) - 0.5) * 0.08, dy: (noise(u.i + 31, k) - 0.5) * 0.08 };
+    },
+  },
+  {
+    id: "pulse",
+    name: "Pulso",
+    kind: "emphasis",
+    unit: "block",
+    state: (p, u, ctx) => ({ scale: 1 + 0.05 * Math.sin(ctx.time * Math.PI * 2 * 1.2) }),
+  },
+  {
+    id: "float",
+    name: "Flotar",
+    kind: "emphasis",
+    unit: "block",
+    state: (p, u, ctx) => ({ dy: Math.sin(ctx.time * Math.PI) * 0.12, rotate: Math.sin(ctx.time * Math.PI * 0.7) * 1.5 }),
+  },
+  {
+    id: "lightsweep",
+    name: "Destello",
+    kind: "emphasis",
+    unit: "char",
+    state: (p, u, ctx) => {
+      const pos = ((ctx.time % 2.2) / 2.2) * (u.n + 8) - 4;
+      return { highlight: clamp01(1 - Math.abs(u.i - pos) / 2.5) };
     },
   },
 ];

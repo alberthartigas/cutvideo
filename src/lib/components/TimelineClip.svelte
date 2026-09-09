@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     clipDuration,
+    effectiveTransition,
     nearestSnap,
     project,
     type Clip,
@@ -14,6 +15,11 @@
   const SNAP_PX = 8;
 
   let selected = $derived(project.selectedId === clip.id);
+  let hasNext = $derived(track.magnetic && track.clips.indexOf(clip) < track.clips.length - 1);
+  let transitionWidth = $derived.by(() => {
+    const next = project.nextClip(clip);
+    return next ? effectiveTransition(clip, next) * project.zoom : 0;
+  });
   let left = $derived(clip.start * project.zoom);
   let width = $derived(Math.max(2, clipDuration(clip) * project.zoom));
   /** Desplazamiento visual (px) mientras se reordena en una pista magnética. */
@@ -114,6 +120,24 @@
   </div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="handle right" onpointerdown={(e) => onHandleDown(e, "out")}></div>
+  {#if hasNext}
+    <!-- Marcador del corte con el siguiente clip: sombreado = zona de transición; clic = editar. -->
+    {#if transitionWidth > 0}
+      <div class="overlap" style="width:{transitionWidth}px"></div>
+    {/if}
+    <button
+      class="junction"
+      class:on={!!clip.transition}
+      title={clip.transition ? "Editar transición" : "Añadir transición"}
+      onpointerdown={(e) => e.stopPropagation()}
+      onclick={(e) => {
+        e.stopPropagation();
+        project.selectedId = clip.id;
+      }}
+    >
+      {clip.transition ? "⇄" : "+"}
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -121,7 +145,6 @@
     position: absolute;
     top: 4px;
     bottom: 4px;
-    overflow: hidden;
     border: 1px solid var(--clip-border);
     border-radius: 6px;
     background: var(--clip-bg);
@@ -153,6 +176,8 @@
   .body {
     position: absolute;
     inset: 0;
+    overflow: hidden;
+    border-radius: 6px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -181,6 +206,39 @@
   .clip.audio .name,
   .clip.text .name {
     min-width: 0;
+  }
+  .overlap {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--accent) 35%, transparent) 4px 6px);
+    pointer-events: none;
+  }
+  .junction {
+    position: absolute;
+    top: 50%;
+    right: -9px;
+    z-index: 5;
+    width: 18px;
+    height: 18px;
+    margin-top: -9px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--muted);
+    opacity: 0;
+    transition: opacity 100ms;
+  }
+  .clip:hover .junction,
+  .junction.on {
+    opacity: 1;
+  }
+  .junction.on {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .handle {
     position: absolute;

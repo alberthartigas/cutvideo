@@ -105,6 +105,30 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
     ctx.fill();
   }
 
+  // Cajas detrás de la palabra actual (estilo "palabra resaltada").
+  const wordBoxes = new Map<number, { x0: number; x1: number; y: number; alpha: number }>();
+  layout.chars.forEach((c, k) => {
+    const s = states[k];
+    if (s.box <= 0.001) return;
+    const wb = wordBoxes.get(c.word);
+    if (wb) {
+      wb.x0 = Math.min(wb.x0, c.x);
+      wb.x1 = Math.max(wb.x1, c.x + c.w);
+      wb.alpha = Math.max(wb.alpha, s.box * s.opacity);
+    } else {
+      wordBoxes.set(c.word, { x0: c.x, x1: c.x + c.w, y: c.y, alpha: s.box * s.opacity });
+    }
+  });
+  for (const wb of wordBoxes.values()) {
+    const pad = fontPx * 0.12;
+    ctx.save();
+    ctx.globalAlpha = wb.alpha;
+    ctx.fillStyle = data.wordBoxColor ?? data.highlightColor;
+    roundRect(ctx, wb.x0 - pad, wb.y - layout.ascent * 0.95 - pad * 0.5, wb.x1 - wb.x0 + pad * 2, layout.ascent * 0.95 + layout.descent * 0.6 + pad, fontPx * 0.15);
+    ctx.fill();
+    ctx.restore();
+  }
+
   layout.chars.forEach((c, k) => {
     const s = states[k];
     if (s.opacity <= 0.001) return;
@@ -115,10 +139,15 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
     ctx.globalAlpha = s.opacity;
     ctx.translate(px + s.dx * fontPx, py + s.dy * fontPx);
     if (s.rotate) ctx.rotate((s.rotate * Math.PI) / 180);
-    if (s.scale !== 1) ctx.scale(s.scale, s.scale);
+    const sx = s.scale * s.scaleX;
+    const sy = s.scale * s.scaleY;
+    if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
     ctx.translate(-px, -py);
     if (s.blur > 0.001 && "filter" in ctx) ctx.filter = `blur(${(s.blur * fontPx).toFixed(1)}px)`;
-    if (data.shadow) {
+    if (data.glow) {
+      ctx.shadowColor = data.color;
+      ctx.shadowBlur = fontPx * 0.45;
+    } else if (data.shadow) {
       ctx.shadowColor = "rgba(0,0,0,0.55)";
       ctx.shadowBlur = fontPx * 0.12;
       ctx.shadowOffsetY = fontPx * 0.04;
@@ -131,6 +160,8 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
     }
     ctx.fillStyle = s.highlight > 0 ? mixColor(data.color, data.highlightColor, s.highlight) : data.color;
     ctx.fillText(c.ch, c.x, c.y);
+    // Segunda pasada del neón para intensificar el halo.
+    if (data.glow) ctx.fillText(c.ch, c.x, c.y);
     ctx.restore();
   });
   ctx.restore();

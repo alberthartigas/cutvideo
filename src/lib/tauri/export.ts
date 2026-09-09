@@ -2,8 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { clipEnd, project, type Clip, type FrameSize } from "$lib/project.svelte";
+import { clipEnd, effectiveTransition, project, type Clip, type FrameSize } from "$lib/project.svelte";
 import { renderTextClips } from "$lib/text/render";
+import { getTransition } from "$lib/transitions/presets";
 
 export type { FrameSize };
 
@@ -14,6 +15,8 @@ export interface ExportClip {
   out: number;
   start: number;
   hasAudio: boolean;
+  /** Transición hacia el clip siguiente (solo pista principal). */
+  transition?: { xfade: string; duration: number } | null;
 }
 
 export interface ExportOverlay {
@@ -74,12 +77,18 @@ export function buildExportPlan(
     start: c.start,
     hasAudio: project.mediaOf(c)?.audio != null,
   });
+  const videoClips = project.videoTrack.clips;
   return {
     output,
     width: size.width,
     height: size.height,
     fps: Math.round(size.fps * 1000) / 1000,
-    video: project.videoTrack.clips.map(toClip),
+    video: videoClips.map((c, i) => {
+      const next = videoClips[i + 1];
+      const preset = c.transition ? getTransition(c.transition.id) : null;
+      const duration = next ? effectiveTransition(c, next) : 0;
+      return { ...toClip(c), transition: preset && duration > 0 ? { xfade: preset.xfade, duration } : null };
+    }),
     audio: project.audioTrack.clips.map(toClip),
     encoder,
     overlays,

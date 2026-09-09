@@ -1,6 +1,7 @@
 import type { MediaInfo } from "$lib/tauri/media";
 import { DEFAULT_TEXT, TEXT_DEFAULT_DURATION, type TextData } from "$lib/text/styles";
 import type { FrameSize } from "$lib/text/layout";
+import { DEFAULT_TRANSITION_DURATION, TRANSITION_MAX, TRANSITION_MIN } from "$lib/transitions/presets";
 
 export type { FrameSize };
 export type TrackKind = "video" | "audio" | "text";
@@ -22,6 +23,17 @@ export interface Clip {
   out: number;
   /** Solo en clips de texto (kind === "text"): `in` es siempre 0 y `out` la duración. */
   text?: TextData;
+  /** Pista magnética: transición hacia el clip siguiente (los dos clips se solapan esa duración). */
+  transition?: { id: string; duration: number };
+}
+
+export interface ActiveTransition {
+  out: Clip;
+  in: Clip;
+  id: string;
+  duration: number;
+  /** 0 = solo el saliente, 1 = solo el entrante. */
+  p: number;
 }
 
 export interface Track {
@@ -46,6 +58,13 @@ const HISTORY_MAX = 200;
 const EPS = 1e-6;
 
 export const clipDuration = (c: Clip) => c.out - c.in;
+
+/** Duración real de la transición entre dos clips contiguos: nunca más de la mitad de cada uno. */
+export function effectiveTransition(prev: Clip, next: Clip): number {
+  const t = prev.transition;
+  if (!t) return 0;
+  return Math.max(0, Math.min(t.duration, clipDuration(prev) / 2, clipDuration(next) / 2));
+}
 export const clipEnd = (c: Clip) => c.start + c.out - c.in;
 export const clipContains = (c: Clip, t: number) => t >= c.start && t < clipEnd(c);
 
@@ -146,6 +165,27 @@ class ProjectStore {
 
   fpsAt(t: number): number {
     return this.clipAt(this.videoTrack, t)?.fps || 30;
+  }
+
+  /** Clip que sigue a `clip` en su pista, si lo hay. */
+  nextClip(clip: Clip): Clip | null {
+    const ref = this.findClip(clip.id);
+    return ref ? (ref.track.clips[ref.index + 1] ?? null) : null;
+  }
+
+  /** Transición activa en la pista principal en el instante `t`, si estamos dentro de un solape. */
+  transitionAt(t: number): ActiveTransition | null {
+    const clips = this.videoTrack.clips;
+    for (let i = 0; i < clips.length - 1; i++) {
+      const out = clips[i];
+      const next = clips[i + 1];
+      const d = effectiveTransition(out, next);
+      if (d <= 0) continue;
+      if (t >= next.start && t < next.start + d) {
+        return { out, in: next, id: out.transition!.id, duration: d, p: (t - next.start) / d };
+      }
+    }
+    return null;
   }
 
   /** Bordes de todos los clips (menos `excludeId`), el playhead y el 0: puntos de imán. */
@@ -290,6 +330,25 @@ class ProjectStore {
     if (patch.text !== undefined) ref.clip.name = patch.text.split("\n")[0].trim() || "Texto";
   }
 
+  /** Pone (o quita, con `id` null) la transición entre `clipId` y el clip siguiente. */
+  setTransition(clipId: string, id: string | null, duration = DEFAULT_TRANSITION_DURATION) {
+    const ref = this.findClip(clipId);
+    if (!ref || !ref.track.magnetic) return;
+    this.commit();
+    ref.clip.transition = id ? { id, duration: clamp(duration, TRANSITION_MIN, TRANSITION_MAX) } : undefined;
+    this.#relayout(ref.track);
+  }
+
+  /** Aplica la misma transición a todos los cortes de la pista principal. */
+  applyTransitionToAll(id: string | null, duration = DEFAULT_TRANSITION_DURATION) {
+    const track = this.videoTrack;
+    this.commit();
+    track.clips.forEach((c, i) => {
+      c.transition = id && i < track.clips.length - 1 ? { id, duration: clamp(duration, TRANSITION_MIN, TRANSITION_MAX) } : undefined;
+    });
+    this.#relayout(track);
+  }
+
   /** Mueve un clip de una pista libre a `start`, evitando solapar otros clips. */
   moveClip(id: string, start: number) {
     const ref = this.findClip(id);
@@ -387,6 +446,8 @@ class ProjectStore {
           ? { ...clip, id: newId(), text: { ...clip.text! }, in: 0, out: clip.out - offset, start: t }
           : { ...clip, id: newId(), in: clip.in + offset, start: t };
       clip.out = clip.in + offset;
+      // La transición hacia el siguiente clip se queda con la parte derecha.
+      if (clip.transition) clip.transition = undefined;
       track.clips.splice(index + 1, 0, right);
       lastRight = right;
     }
@@ -438,13 +499,15 @@ class ProjectStore {
 
   // ---- Internos ----
 
-  /** Pista magnética: recoloca los clips pegados en orden desde 0. */
+  /** Pista magnética: recoloca los clips pegados en orden desde 0, solapando las transiciones. */
   #relayout(track: Track) {
     let t = 0;
-    for (const c of track.clips) {
+    track.clips.forEach((c, i) => {
+      const prev = track.clips[i - 1];
+      if (prev) t -= effectiveTransition(prev, c);
       c.start = t;
       t += clipDuration(c);
-    }
+    });
   }
 
   #sort(track: Track) {

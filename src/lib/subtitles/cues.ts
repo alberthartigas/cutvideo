@@ -29,6 +29,8 @@ export interface CueOptions {
   gap: number;
   /** Duración mínima de un subtítulo (s). */
   minDuration: number;
+  /** Palabras máximas por subtítulo (0 = sin límite). Para estilos "palabra a palabra". */
+  maxWords: number;
 }
 
 export const DEFAULT_CUE_OPTIONS: CueOptions = {
@@ -37,6 +39,7 @@ export const DEFAULT_CUE_OPTIONS: CueOptions = {
   maxDuration: 5,
   gap: 0.7,
   minDuration: 0.8,
+  maxWords: 0,
 };
 
 const endsSentence = (w: string) => /[.!?…]["»)]?$/.test(w);
@@ -71,7 +74,7 @@ export function buildCues(words: Word[], options: Partial<CueOptions> = {}): Cue
   const flush = () => {
     if (!group.length) return;
     const start = group[0].start;
-    const end = Math.max(group[group.length - 1].end, start + o.minDuration);
+    const end = Math.max(group[group.length - 1].end, start + (o.maxWords === 1 ? 0.25 : o.minDuration));
     cues.push({
       text: breakLines(group.map((w) => w.word), o.maxChars, o.maxLines),
       start,
@@ -89,7 +92,8 @@ export function buildCues(words: Word[], options: Partial<CueOptions> = {}): Cue
       const duration = w.end - group[0].start;
       const sentence = endsSentence(prev.word) && chars > 12;
       const clause = endsClause(prev.word) && chars > maxTotal * 0.6;
-      if (chars > maxTotal || pause > o.gap || duration > o.maxDuration || sentence || clause) flush();
+      const full = o.maxWords > 0 && group.length >= o.maxWords;
+      if (chars > maxTotal || pause > o.gap || duration > o.maxDuration || sentence || clause || full) flush();
     }
     group.push(w);
   }
@@ -120,7 +124,10 @@ export function cuesFromSegments(segments: Segment[], options: Partial<CueOption
 export interface SubtitleStyle {
   id: string;
   name: string;
+  /** Cómo se ve en CapCut, para orientarse. */
+  hint: string;
   data: TextData;
+  cue?: Partial<CueOptions>;
 }
 
 const base: TextData = {
@@ -136,8 +143,81 @@ const base: TextData = {
   emphasis: "none",
 };
 
+const IMPACT = 'Impact, "Arial Black", Haettenschweiler, sans-serif';
+
+/** Estilos de subtítulo inspirados en las plantillas más usadas de CapCut. */
 export const SUBTITLE_STYLES: SubtitleStyle[] = [
-  { id: "classic", name: "Clásico", data: { ...base, stroke: 0.06, strokeColor: "#000000", shadow: true } },
-  { id: "box", name: "Caja", data: { ...base, shadow: false, box: true, boxColor: "#000000", boxOpacity: 0.7 } },
-  { id: "yellow", name: "Amarillo", data: { ...base, color: "#ffe066", stroke: 0.06, strokeColor: "#000000", highlightColor: "#ffffff" } },
+  {
+    id: "classic",
+    name: "Clásico TikTok",
+    hint: "Blanco, negrita, borde negro y sombra",
+    data: { ...base, stroke: 0.06, strokeColor: "#000000", shadow: true },
+  },
+  {
+    id: "karaoke",
+    name: "Karaoke amarillo",
+    hint: "Las palabras se van tiñendo de amarillo al pronunciarse",
+    data: { ...base, stroke: 0.06, shadow: true, emphasis: "karaoke", highlightColor: "#ffd166" },
+  },
+  {
+    id: "wordbox",
+    name: "Palabra en caja",
+    hint: "La palabra actual lleva una caja de color (estilo Hormozi)",
+    data: { ...base, fontFamily: IMPACT, bold: false, stroke: 0.05, shadow: true, emphasis: "wordbox", wordBoxColor: "#16a34a", fontSize: 0.06 },
+  },
+  {
+    id: "wordpop",
+    name: "Pop por palabra",
+    hint: "Cada palabra salta al pronunciarse y queda resaltada",
+    data: { ...base, stroke: 0.06, shadow: true, emphasis: "wordpop", highlightColor: "#ffd166" },
+  },
+  {
+    id: "wordbounce",
+    name: "Rebote por palabra",
+    hint: "Cada palabra da un botecito al pronunciarse",
+    data: { ...base, stroke: 0.06, shadow: true, emphasis: "wordbounce", highlightColor: "#7cf0ff" },
+  },
+  {
+    id: "oneword",
+    name: "Palabra a palabra",
+    hint: "Una palabra grande en el centro, estilo Shorts",
+    data: { ...base, fontFamily: IMPACT, bold: false, fontSize: 0.12, y: 0.5, stroke: 0.06, shadow: true, animIn: "pop", inDur: 0.14, animOut: "none" },
+    cue: { maxWords: 1 },
+  },
+  {
+    id: "box",
+    name: "Caja negra",
+    hint: "Blanco sobre una caja negra semitransparente",
+    data: { ...base, shadow: false, box: true, boxColor: "#000000", boxOpacity: 0.7 },
+  },
+  {
+    id: "readable",
+    name: "Amarillo legible",
+    hint: "Amarillo en negrita sobre caja negra (el más legible en móvil)",
+    data: { ...base, color: "#ffe135", shadow: false, box: true, boxColor: "#000000", boxOpacity: 0.85, highlightColor: "#ffffff" },
+  },
+  {
+    id: "neon",
+    name: "Neón",
+    hint: "Texto con resplandor de color",
+    data: { ...base, color: "#ff5ec4", glow: true, shadow: false, stroke: 0, highlightColor: "#ffffff" },
+  },
+  {
+    id: "typewriter",
+    name: "Máquina de escribir",
+    hint: "Cada subtítulo se escribe letra a letra",
+    data: { ...base, stroke: 0.06, shadow: true, animIn: "typewriter", inDur: 0.45 },
+  },
+  {
+    id: "minimal",
+    name: "Minimal",
+    hint: "Pequeño, sin borde, caja muy suave",
+    data: { ...base, fontSize: 0.042, bold: false, shadow: false, box: true, boxColor: "#000000", boxOpacity: 0.35 },
+  },
+  {
+    id: "elegant",
+    name: "Elegante",
+    hint: "Serif, blanco con sombra, para vlogs y lifestyle",
+    data: { ...base, fontFamily: 'Georgia, "Times New Roman", serif', bold: false, fontSize: 0.05, shadow: true, stroke: 0, animIn: "fadezoom", inDur: 0.2 },
+  },
 ];

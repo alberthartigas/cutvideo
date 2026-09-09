@@ -7,6 +7,7 @@
   import Timeline from "$lib/components/Timeline.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
   import TextInspector from "$lib/components/TextInspector.svelte";
+  import TransitionPanel from "$lib/components/TransitionPanel.svelte";
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import SubtitlesDialog from "$lib/components/SubtitlesDialog.svelte";
@@ -35,6 +36,10 @@
   // El inspector muestra el clip seleccionado en el timeline; si no hay, el archivo de la biblioteca.
   let inspectorClip = $derived(project.selected?.clip ?? null);
   let inspectorMedia = $derived(inspectorClip ? project.mediaOf(inspectorClip) : selectedMedia);
+  // Transición: solo tiene sentido en un clip de la pista principal que tenga otro detrás.
+  let transitionNext = $derived(
+    inspectorClip && project.selected?.track.magnetic ? project.nextClip(inspectorClip) : null,
+  );
 
   async function importPaths(paths: string[]) {
     if (paths.length === 0) return;
@@ -245,6 +250,9 @@
       {#if inspectorClip?.kind === "text"}
         <TextInspector clip={inspectorClip} />
       {:else}
+        {#if inspectorClip && transitionNext}
+          <TransitionPanel clip={inspectorClip} next={transitionNext} />
+        {/if}
         <MediaInfoPanel media={inspectorMedia} clip={inspectorClip} />
       {/if}
     </aside>

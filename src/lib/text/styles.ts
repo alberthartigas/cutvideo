@@ -15,6 +15,10 @@ export interface TextData {
   boxOpacity: number;
   /** Color del resaltado (karaoke). */
   highlightColor: string;
+  /** Color de la caja detrás de la palabra actual (emphasis "wordbox"); por defecto, el del resaltado. */
+  wordBoxColor?: string;
+  /** Resplandor tipo neón del color del texto. */
+  glow?: boolean;
   /** Centro del bloque de texto, normalizado (0.5, 0.5 = centro del frame). */
   x: number;
   y: number;

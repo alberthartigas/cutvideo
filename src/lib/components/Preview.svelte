@@ -1,16 +1,22 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Pause, Play, SkipBack } from "@lucide/svelte";
-  import { project, type Track } from "$lib/project.svelte";
+  import { project, type Clip, type Track } from "$lib/project.svelte";
   import { mediaSrc } from "$lib/tauri/media";
   import { formatDuration } from "$lib/format";
   import { renderTextClips } from "$lib/text/render";
+  import { transitionFrame } from "$lib/transitions/presets";
 
   // Reproductor provisional: un <video> para V1 y un <audio> para A1, esclavizados
   // a un reloj de pared, más un canvas transparente encima con los textos animados.
   // Se sustituirá por el motor WebCodecs + WebGL cuando lleguen transiciones y color.
-  let videoEl = $state<HTMLVideoElement>();
+  // Dos <video> para la pista principal: el siguiente clip se precarga en el
+  // libre (cortes sin tirón) y durante una transición se ven los dos.
+  let videoA = $state<HTMLVideoElement>();
+  let videoB = $state<HTMLVideoElement>();
+  let flashEl = $state<HTMLDivElement>();
   let audioEl = $state<HTMLAudioElement>();
+  const slots: { clipId: string | null }[] = [{ clipId: null }, { clipId: null }];
   let textCanvas = $state<HTMLCanvasElement>();
   let stageW = $state(0);
   let stageH = $state(0);
@@ -22,27 +28,72 @@
   let viewW = $derived(Math.round(frame.width * scale));
   let viewH = $derived(Math.round(frame.height * scale));
 
-  function lastFrameClip(track: Track, t: number) {
-    return project.clipAt(track, t) ?? (t > 0 && !project.playing ? project.clipAt(track, t - 1e-3) : null);
+  function lastFrameClip(track: Track, t: number, playing: boolean) {
+    return project.clipAt(track, t) ?? (t > 0 && !playing ? project.clipAt(track, t - 1e-3) : null);
   }
-  let hasVideo = $derived(lastFrameClip(project.videoTrack, project.playhead) !== null);
 
-  /** Ajusta un elemento multimedia a lo que toca en la pista en el instante `t`. */
-  function sync(el: HTMLMediaElement | undefined, track: Track, t: number, playing: boolean) {
+  /** Elemento de vídeo asignado a un clip; si no tiene, usa el que no esté ocupado por `keepId`. */
+  function slotFor(clipId: string, keepId: string | null): HTMLVideoElement | undefined {
+    const els = [videoA, videoB];
+    let idx = slots.findIndex((s) => s.clipId === clipId);
+    if (idx < 0) idx = slots.findIndex((s) => s.clipId === null || s.clipId !== keepId);
+    if (idx < 0) idx = 0;
+    slots[idx].clipId = clipId;
+    return els[idx];
+  }
+
+  /** Deja listo un clip en un elemento sin reproducirlo (precarga). */
+  function preload(el: HTMLVideoElement | undefined, clip: Clip) {
     if (!el) return;
-    // Parados justo al final del proyecto enseñamos el último frame, no negro.
-    const clip = project.clipAt(track, t) ?? (t > 0 && !playing ? project.clipAt(track, t - 1e-3) : null);
-    if (!clip) {
-      if (!el.paused) el.pause();
-      return;
+    const src = mediaSrc(clip.mediaPath);
+    if (el.dataset.src !== src) {
+      el.dataset.src = src;
+      el.src = src;
+      el.currentTime = clip.in;
     }
+    if (!el.paused) el.pause();
+  }
+
+  const BASE_STYLE = "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;";
+
+  /** Pista principal: clip activo, transición en curso y precarga del siguiente. */
+  function syncVideo(t: number, playing: boolean) {
+    const track = project.videoTrack;
+    const tr = project.transitionAt(t);
+    const active = tr ? tr.out : lastFrameClip(track, t, playing);
+    const incoming = tr ? tr.in : active ? project.nextClip(active) : null;
+    const elA = active ? slotFor(active.id, incoming?.id ?? null) : undefined;
+    const elB = incoming ? slotFor(incoming.id, active?.id ?? null) : undefined;
+
+    if (active && elA) syncClip(elA, active, t, playing);
+    if (incoming && elB) {
+      if (tr) syncClip(elB, incoming, t, playing);
+      else preload(elB, incoming);
+    }
+    const frame = tr ? transitionFrame(tr.id, tr.p) : null;
+    for (const el of [videoA, videoB]) {
+      if (!el) continue;
+      if (el === elA && active) el.style.cssText = `${BASE_STYLE}${frame?.a ?? ""}`;
+      else if (el === elB && tr) el.style.cssText = `${BASE_STYLE}${frame?.b ?? ""}`;
+      else {
+        el.style.cssText = `${BASE_STYLE}visibility:hidden`;
+        if (!el.paused && el !== elB) el.pause();
+      }
+    }
+    if (flashEl) {
+      flashEl.style.opacity = String(frame?.flash ?? 0);
+      flashEl.style.background = frame?.flashColor ?? "#fff";
+    }
+  }
+
+  /** Ajusta un elemento a un clip concreto en el instante `t`. */
+  function syncClip(el: HTMLMediaElement, clip: Clip, t: number, playing: boolean) {
     const src = mediaSrc(clip.mediaPath);
     if (el.dataset.src !== src) {
       el.dataset.src = src;
       el.src = src;
     }
     const expected = clip.in + (t - clip.start);
-    // Reproduciendo toleramos algo de deriva; parados buscamos el frame exacto.
     if (Math.abs(el.currentTime - expected) > (playing ? 0.15 : 0.02)) el.currentTime = expected;
     if (playing) {
       if (el.paused) el.play().catch(() => {});
@@ -51,11 +102,23 @@
     }
   }
 
+  /** Pista de audio libre: un solo elemento, parado si no hay clip. */
+  function syncAudio(t: number, playing: boolean) {
+    const el = audioEl;
+    if (!el) return;
+    const clip = lastFrameClip(project.audioTrack, t, playing);
+    if (!clip) {
+      if (!el.paused) el.pause();
+      return;
+    }
+    syncClip(el, clip, t, playing);
+  }
+
   // Parado: cada cambio del playhead (o de los clips) actualiza el frame.
   $effect(() => {
     if (project.playing) return;
-    sync(videoEl, project.videoTrack, project.playhead, false);
-    sync(audioEl, project.audioTrack, project.playhead, false);
+    syncVideo(project.playhead, false);
+    syncAudio(project.playhead, false);
   });
 
   // Textos: se redibujan con cada cambio del playhead, del texto o del tamaño del frame.
@@ -68,8 +131,6 @@
   // Reproduciendo: bucle con requestAnimationFrame.
   $effect(() => {
     if (!project.playing) return;
-    const video = videoEl;
-    const audio = audioEl;
     const t0 = untrack(() => project.playhead);
     const w0 = performance.now();
     let raf = requestAnimationFrame(function tick() {
@@ -81,14 +142,15 @@
         return;
       }
       project.playhead = t;
-      sync(video, project.videoTrack, t, true);
-      sync(audio, project.audioTrack, t, true);
+      syncVideo(t, true);
+      syncAudio(t, true);
       raf = requestAnimationFrame(tick);
     });
     return () => {
       cancelAnimationFrame(raf);
-      video?.pause();
-      audio?.pause();
+      videoA?.pause();
+      videoB?.pause();
+      audioEl?.pause();
     };
   });
 
@@ -106,7 +168,10 @@
         style="left:{Math.round((stageW - viewW) / 2)}px; top:{Math.round((stageH - viewH) / 2)}px; width:{viewW}px; height:{viewH}px"
       >
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={videoEl} playsinline preload="auto" class="absolute inset-0 h-full w-full object-contain" class:invisible={!hasVideo}></video>
+        <video bind:this={videoA} playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;visibility:hidden"></video>
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video bind:this={videoB} playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;visibility:hidden"></video>
+        <div bind:this={flashEl} class="pointer-events-none absolute inset-0" style="opacity:0"></div>
         <canvas bind:this={textCanvas} width={frame.width} height={frame.height} class="pointer-events-none absolute inset-0 h-full w-full"></canvas>
       </div>
     {/if}

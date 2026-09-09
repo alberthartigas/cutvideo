@@ -57,11 +57,14 @@
     });
     try {
       const transcript = await transcribe({ provider, language: language || null, clips });
-      const cues = transcript.words.length
-        ? buildCues(transcript.words, { maxChars })
-        : cuesFromSegments(transcript.segments, { maxChars });
       const style = SUBTITLE_STYLES.find((s) => s.id === styleId) ?? SUBTITLE_STYLES[0];
-      project.setSubtitles(cues, { ...style.data, emphasis: karaoke && transcript.words.length ? "karaoke" : "none" });
+      const cues = transcript.words.length
+        ? buildCues(transcript.words, { maxChars, ...style.cue })
+        : cuesFromSegments(transcript.segments, { maxChars });
+      // El estilo manda; el karaoke solo se añade a los estilos sin animación por palabra propia.
+      const emphasis =
+        style.data.emphasis !== "none" ? style.data.emphasis : karaoke && transcript.words.length ? "karaoke" : "none";
+      project.setSubtitles(cues, { ...style.data, emphasis });
       phase = { kind: "done", count: cues.length, transcript };
     } catch (e) {
       const message = String(e);
@@ -121,6 +124,7 @@
             {#each SUBTITLE_STYLES as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
           </select>
         </label>
+        <p class="-mt-2 text-right text-xs text-muted">{SUBTITLE_STYLES.find((s) => s.id === styleId)?.hint}</p>
         <label class="flex items-center justify-between gap-3">
           <span>Máx. caracteres por línea</span>
           <input type="number" min="16" max="60" class="field w-20 text-center" bind:value={maxChars} />

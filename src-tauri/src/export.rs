@@ -39,7 +39,24 @@ pub struct ExportClip {
     /// Posición en el timeline (s). Solo importa en la pista de audio.
     pub start: f64,
     pub has_audio: bool,
+    /// Transición hacia el clip siguiente (pista principal).
+    #[serde(default)]
+    pub transition: Option<ExportTransition>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportTransition {
+    /// Nombre del filtro `xfade` (validado contra una lista cerrada).
+    pub xfade: String,
+    pub duration: f64,
+}
+
+const XFADE_NAMES: &[&str] = &[
+    "fade", "dissolve", "fadeblack", "fadewhite", "slideleft", "slideright", "slideup", "slidedown",
+    "smoothleft", "smoothright", "wipeleft", "wiperight", "wipeup", "wipedown", "zoomin", "hblur",
+    "circleopen", "circleclose", "pixelize", "squeezeh", "squeezev", "radial", "distance",
+];
 
 impl ExportClip {
     pub(crate) fn duration(&self) -> f64 {
@@ -104,8 +121,22 @@ pub(crate) fn sec(v: f64) -> String {
     format!("{v:.4}")
 }
 
+/// Duración de la pista principal descontando los solapes de las transiciones.
+fn video_length(clips: &[ExportClip]) -> f64 {
+    let mut len = 0.0;
+    for (i, c) in clips.iter().enumerate() {
+        len += c.duration();
+        if let (Some(t), Some(next)) = (&c.transition, clips.get(i + 1)) {
+            if XFADE_NAMES.contains(&t.xfade.as_str()) {
+                len -= t.duration.max(0.0).min(c.duration() / 2.0).min(next.duration() / 2.0);
+            }
+        }
+    }
+    len
+}
+
 fn total_duration(plan: &ExportPlan) -> f64 {
-    let video: f64 = plan.video.iter().map(ExportClip::duration).sum();
+    let video = video_length(&plan.video);
     plan.audio
         .iter()
         .map(|c| c.start + c.duration())
@@ -116,7 +147,6 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     let n = plan.video.len();
     let (w, h) = (plan.width, plan.height);
     let fps = format!("{:.3}", plan.fps);
-    let video_len: f64 = plan.video.iter().map(ExportClip::duration).sum();
     let total = total_duration(plan);
 
     let mut args: Vec<String> = [
@@ -167,8 +197,38 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
             ));
         }
     }
-    let concat_inputs: String = (0..n).map(|i| format!("[v{i}][a{i}]")).collect();
-    filters.push(format!("{concat_inputs}concat=n={n}:v=1:a=1[vcat][acat]"));
+    // Encadenamos los clips: corte seco = concat; con transición = xfade (vídeo) + acrossfade (audio).
+    let mut vcur = String::from("v0");
+    let mut acur = String::from("a0");
+    let mut cur_len = plan.video[0].duration();
+    for i in 1..n {
+        let prev = &plan.video[i - 1];
+        let c = &plan.video[i];
+        match &prev.transition {
+            Some(t) if t.duration > 0.0 && XFADE_NAMES.contains(&t.xfade.as_str()) => {
+                let d = t.duration.min(prev.duration() / 2.0).min(c.duration() / 2.0);
+                let offset = (cur_len - d).max(0.0);
+                filters.push(format!(
+                    "[{vcur}][v{i}]xfade=transition={}:duration={}:offset={}[vx{i}]",
+                    t.xfade,
+                    sec(d),
+                    sec(offset)
+                ));
+                filters.push(format!("[{acur}][a{i}]acrossfade=d={}:c1=tri:c2=tri[ax{i}]", sec(d)));
+                cur_len += c.duration() - d;
+            }
+            _ => {
+                filters.push(format!("[{vcur}][v{i}]concat=n=2:v=1:a=0[vx{i}]"));
+                filters.push(format!("[{acur}][a{i}]concat=n=2:v=0:a=1[ax{i}]"));
+                cur_len += c.duration();
+            }
+        }
+        vcur = format!("vx{i}");
+        acur = format!("ax{i}");
+    }
+    filters.push(format!("[{vcur}]null[vcat]"));
+    filters.push(format!("[{acur}]anull[acat]"));
+    let video_len = cur_len;
 
     // Si la pista de audio dura más que el vídeo, rellenamos con negro.
     if total > video_len + 0.01 {
@@ -441,7 +501,7 @@ mod tests {
     use super::*;
 
     fn clip(path: &str, in_sec: f64, out: f64, start: f64, has_audio: bool) -> ExportClip {
-        ExportClip { path: path.into(), in_sec, out, start, has_audio }
+        ExportClip { path: path.into(), in_sec, out, start, has_audio, transition: None }
     }
 
     /// Prueba de humo del grafo de filtros con el ffmpeg del sistema. Se activa con
@@ -471,16 +531,20 @@ mod tests {
             height: 720,
             fps: 30.0,
             video: vec![
-                clip(&p("clipA.mp4"), 0.5, 2.5, 0.0, true),
-                clip(&p("clipB.mp4"), 1.0, 3.0, 2.0, true),
-                clip(&p("mute.mp4"), 0.0, 1.5, 4.0, false),
+                // A → B con fundido de 0,5 s (solape); B → mute corte seco.
+                ExportClip {
+                    transition: Some(ExportTransition { xfade: "fade".into(), duration: 0.5 }),
+                    ..clip(&p("clipA.mp4"), 0.5, 2.5, 0.0, true)
+                },
+                clip(&p("clipB.mp4"), 1.0, 3.0, 1.5, true),
+                clip(&p("mute.mp4"), 0.0, 1.5, 3.5, false),
             ],
             audio: vec![clip(&p("music.mp3"), 0.0, 5.0, 1.5, true)],
             encoder: "x264".into(),
             overlays: vec![ExportOverlay { pattern, fps: 30.0, start: 1.0 }],
         };
         let expected = total_duration(&plan);
-        assert!((expected - 6.5).abs() < 1e-9, "duración total {expected}");
+        assert!((expected - 6.5).abs() < 1e-9, "duración total {expected} (vídeo 5 - 0,5 de solape, audio hasta 6,5)");
 
         let args = build_args(&plan, Encoder::X264);
         let status = std::process::Command::new(&ffmpeg).args(&args).status().expect("ejecutar ffmpeg");
