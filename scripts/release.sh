@@ -47,6 +47,12 @@ p = pathlib.Path("src-tauri/Cargo.toml")
 p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{v}"', p.read_text(), count=1, flags=re.M))
 PY
 
+# Una compilación cortada a medias deja el DMG montado, y la siguiente falla
+# con un escueto "error running bundle_dmg.sh". Se desmontan antes de empezar.
+for v in /Volumes/dmg.*; do
+  [[ -d "$v" ]] && hdiutil detach "$v" -force >/dev/null 2>&1 || true
+done
+
 echo "→ Compilando"
 npm run tauri build
 
