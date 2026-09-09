@@ -815,13 +815,15 @@ mod tests {
             &verde,
         );
 
-        // Máscara: blanca en la mitad izquierda, negra en la derecha.
+        // Máscara: blanca a la izquierda, negra a la derecha. Se guarda en RGBA
+        // porque es lo que produce el canvas del frontend, y ahí es donde se
+        // vería si ffmpeg comprimiera los valores al rango de vídeo (16–235).
         let mask_dir = p("cap-mask");
         std::fs::create_dir_all(&mask_dir).unwrap();
         let ok = std::process::Command::new(&ffmpeg)
             .args(["-v", "error", "-y", "-f", "lavfi", "-i",
                    "color=c=black:s=160x120:r=25:d=2,drawbox=x=0:y=0:w=80:h=120:color=white:t=fill",
-                   "-pix_fmt", "gray", "-start_number", "0",
+                   "-pix_fmt", "rgba", "-start_number", "0",
                    &format!("{mask_dir}/%05d.png")])
             .status()
             .expect("generar la máscara");
@@ -886,7 +888,8 @@ mod tests {
             (b[0], b[1], b[2])
         };
         let px = |x: u32, y: u32| en("1", x, y);
-        let magenta_p = |c: (u8, u8, u8)| c.0 > 150 && c.1 < 90 && c.2 > 150;
+        // Exigimos magenta puro: si la máscara perdiera rango, saldría lavado.
+        let magenta_p = |c: (u8, u8, u8)| c.0 > 240 && c.1 < 25 && c.2 > 240;
         let azul_p = |c: (u8, u8, u8)| c.0 < 90 && c.1 < 90 && c.2 > 140;
         let rojo_p = |c: (u8, u8, u8)| c.0 > 150 && c.1 < 90 && c.2 < 90;
 
