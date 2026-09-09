@@ -23,6 +23,8 @@
   import { project } from "$lib/project.svelte";
   import { anyDialogOpen, ui } from "$lib/ui.svelte";
   import { refreshSamples } from "$lib/preview/samples.svelte";
+  import { layout } from "$lib/layout.svelte";
+  import Splitter from "$lib/components/Splitter.svelte";
   import { startDrag } from "$lib/drag";
 
   let timeline = $state<ReturnType<typeof Timeline>>();
@@ -203,9 +205,10 @@
   <div class="flex min-h-0 flex-1">
     <Sidebar />
 
-    <div class="grid min-h-0 flex-1 grid-cols-[248px_1fr_300px] gap-2 p-2">
+    <!-- Los anchos salen de `layout` y se ajustan con los divisores. -->
+    <div class="flex min-h-0 flex-1 py-2 pl-2">
       <!-- Sección elegida en la barra lateral -->
-      <div class="min-h-0">
+      <div class="min-h-0 shrink-0" style="width:{layout.panelWidth}px">
         {#if ui.panel === "media"}
           <MediaPanel
             {importing}
@@ -229,13 +232,17 @@
         {/if}
       </div>
 
+      <Splitter key="panelWidth" label="Ancho del panel" />
+
       <!-- Preview -->
-      <section class="panel">
+      <section class="panel min-w-0 flex-1">
         <Preview />
       </section>
 
+      <Splitter key="inspectorWidth" label="Ancho del inspector" invert />
+
       <!-- Inspector -->
-      <aside class="panel">
+      <aside class="panel mr-2 shrink-0" style="width:{layout.inspectorWidth}px">
         <div class="panel-header"><span>{inspectorClip?.kind === "text" ? "Texto" : "Inspector"}</span></div>
         {#if inspectorClip?.kind === "text"}
           <TextInspector clip={inspectorClip} />
@@ -249,7 +256,9 @@
     </div>
   </div>
 
-  <div class="mx-2 mb-2 h-60 shrink-0">
+  <Splitter key="timelineHeight" label="Altura del timeline" axis="y" invert />
+
+  <div class="mx-2 mb-2 shrink-0" style="height:{layout.timelineHeight}px">
     <Timeline bind:this={timeline} />
   </div>
 
