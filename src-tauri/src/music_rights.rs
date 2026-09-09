@@ -135,7 +135,11 @@ async fn musicbrainz_lookup(artist: &str, title: &str) -> Result<Option<String>,
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
-    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| crate::neterr::describe("No se pudo consultar el servicio", &e))?;
     if !response.status().is_success() {
         return Err(format!("MusicBrainz respondió {}", response.status().as_u16()));
     }
@@ -185,7 +189,11 @@ async fn acoustid_lookup(path: &str) -> Result<Option<String>, String> {
         duration.round() as i64,
         urlencoding(fingerprint)
     );
-    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| crate::neterr::describe("No se pudo consultar el servicio", &e))?;
     let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
     let rec = body
         .get("results")
@@ -307,7 +315,7 @@ pub async fn suggest_free_music(query: String) -> Result<Vec<FreeTrack>, String>
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("No se pudo consultar Openverse: {e}"))?;
+        .map_err(|e| crate::neterr::describe("No se pudo consultar Openverse", &e))?;
     if !response.status().is_success() {
         return Err(format!("Openverse respondió {}", response.status().as_u16()));
     }
@@ -380,7 +388,7 @@ pub async fn download_track(app: AppHandle, url: String, name: String) -> Result
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("No se pudo descargar: {e}"))?;
+        .map_err(|e| crate::neterr::describe("No se pudo descargar", &e))?;
     if !response.status().is_success() {
         return Err(format!("La descarga respondió {}", response.status().as_u16()));
     }

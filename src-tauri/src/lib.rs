@@ -3,6 +3,7 @@ mod analyze;
 mod export;
 mod media;
 mod music_rights;
+mod neterr;
 mod patches;
 mod projects;
 mod secrets;

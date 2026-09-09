@@ -11,8 +11,11 @@
        (en desarrollo, las de Homebrew). Sin esto, el runtime endurecido los mata. -->
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
-  <!-- Permite lanzar los sidecars como procesos hijos. -->
-  <key>com.apple.security.inherit</key>
-  <true/>
+  <!-- Nota: aquí había un `com.apple.security.inherit`, puesto pensando que
+       hacía falta para lanzar los sidecars. No es eso: ese permiso es para que
+       un proceso hijo herede el sandbox del padre, y al ponerlo en una app que
+       no está en sandbox macOS la metía en uno heredado y vacío, sin red. Por
+       eso fallaban Openverse, la comprobación de derechos y la IA. Una app con
+       Developer ID fuera de la App Store no debe llevarlo. -->
 </dict>
 </plist>

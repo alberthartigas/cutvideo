@@ -63,7 +63,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENERTUwQjI3OUJBMUJCNTIKUldSU3U2R2JKd3ZsemF6aklWQ2N3bEhUSXhldlJFbEJhLzZRMlJrR3ovZHB5cHpqTkYxb0xCVkoK",
       "endpoints": [
-        "https://github.com/TU-USUARIO/cutvideo/releases/latest/download/latest.json"
+        "https://github.com/alberthartigas/cutvideo/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

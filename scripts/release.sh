@@ -61,7 +61,7 @@ version, archivo, firma, target = sys.argv[1:5]
 plataforma = "darwin-aarch64" if "aarch64-apple" in target else \
              "darwin-x86_64" if "x86_64-apple" in target else \
              "windows-x86_64"
-url = f"https://github.com/TU-USUARIO/cutvideo/releases/download/v{version}/{archivo}"
+url = f"https://github.com/alberthartigas/cutvideo/releases/download/v{version}/{archivo}"
 print(json.dumps({
     "version": version,
     "notes": "Mejoras y correcciones.",
