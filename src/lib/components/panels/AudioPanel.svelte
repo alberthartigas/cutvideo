@@ -2,9 +2,12 @@
   import {
     BadgeCheck,
     CircleAlert,
+    Download,
     ExternalLink,
     Gauge,
     LoaderCircle,
+    Pause,
+    Play,
     Plus,
     Search,
     ShieldAlert,
@@ -16,12 +19,13 @@
   import {
     analyzeBeats,
     checkMusicRights,
+    downloadTrack,
     suggestFreeMusic,
     type BeatAnalysis,
     type FreeTrack,
     type RightsReport,
   } from "$lib/autoedit/run";
-  import type { MediaInfo } from "$lib/tauri/media";
+  import { probeMedia, type MediaInfo } from "$lib/tauri/media";
 
   let checking = $state<string | null>(null);
   let reports = $state<Record<string, RightsReport>>({});
@@ -30,6 +34,49 @@
   let searching = $state(false);
   let error = $state<string | null>(null);
   let query = $state("upbeat background music");
+  /** Pista que se está escuchando desde el panel (no sale de la app). */
+  let playing = $state<string | null>(null);
+  let adding = $state<string | null>(null);
+  let player: HTMLAudioElement | undefined;
+
+  function preview(track: FreeTrack) {
+    if (!track.audioUrl) return;
+    player ??= new Audio();
+    if (playing === track.url) {
+      player.pause();
+      playing = null;
+      return;
+    }
+    player.src = track.audioUrl;
+    player.onended = () => (playing = null);
+    player.onerror = () => {
+      error = `No se pudo reproducir «${track.title}». Ábrela en su página si quieres oírla entera.`;
+      playing = null;
+    };
+    player.play().then(() => (playing = track.url)).catch(() => {
+      error = `No se pudo reproducir «${track.title}».`;
+    });
+  }
+
+  /** Descarga la pista, la mete en la biblioteca y la pone en la pista de audio. */
+  async function addToProject(track: FreeTrack) {
+    const source = track.audioUrl ?? track.url;
+    adding = track.url;
+    error = null;
+    try {
+      const path = await downloadTrack(source, `${track.title} - ${track.creator}`);
+      const info = await probeMedia(path);
+      project.addMedia(info);
+      project.addClip(info);
+    } catch (e) {
+      error = String(e);
+    } finally {
+      adding = null;
+    }
+  }
+
+  // Al cambiar de sección se corta lo que estuviera sonando.
+  $effect(() => () => player?.pause());
 
   let audioFiles = $derived(project.media.filter((m) => m.audio));
 
@@ -142,13 +189,29 @@
   <ul class="mt-2 space-y-1">
     {#each suggestions as t (t.url)}
       <li class="rounded-md border border-border bg-panel-2 px-2 py-1.5 text-xs">
-        <div class="flex items-baseline gap-1">
+        <div class="flex items-center gap-1">
+          <button
+            class="tool h-6 w-6 shrink-0 justify-center px-0"
+            title={t.audioUrl ? (playing === t.url ? "Pausar" : "Escuchar aquí") : "Esta pista no se puede escuchar desde aquí"}
+            disabled={!t.audioUrl}
+            onclick={() => preview(t)}
+          >
+            {#if playing === t.url}<Pause size={12} />{:else}<Play size={12} />{/if}
+          </button>
           <span class="min-w-0 flex-1 truncate font-medium" title={t.title}>{t.title}</span>
-          <button class="tool h-5 px-1 text-[10px]" title="Abrir para descargarla" onclick={() => openUrl(t.url)}>
-            <ExternalLink size={10} />
+          <button
+            class="tool h-6 w-6 shrink-0 justify-center px-0"
+            title="Descargar y añadir al proyecto"
+            disabled={adding === t.url}
+            onclick={() => addToProject(t)}
+          >
+            {#if adding === t.url}<LoaderCircle size={12} class="animate-spin" />{:else}<Download size={12} />{/if}
+          </button>
+          <button class="tool h-6 w-6 shrink-0 justify-center px-0" title="Ver su página (licencia y autor)" onclick={() => openUrl(t.url)}>
+            <ExternalLink size={11} />
           </button>
         </div>
-        <p class="truncate text-[11px] text-muted">
+        <p class="truncate pl-7 text-[11px] text-muted">
           {t.creator} · {t.license}{#if t.duration}{" · "}{formatDuration(t.duration)}{/if}
         </p>
       </li>

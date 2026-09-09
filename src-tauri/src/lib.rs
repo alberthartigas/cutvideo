@@ -63,6 +63,7 @@ pub fn run() {
             analyze::analyze_beats,
             music_rights::check_music_rights,
             music_rights::suggest_free_music,
+            music_rights::download_track,
             ai::ai_edit_plan,
             projects::list_projects,
             projects::load_project,

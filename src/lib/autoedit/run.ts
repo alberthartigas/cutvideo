@@ -75,6 +75,8 @@ export function detectSilences(thresholdDb: number, minDuration: number): Promis
 export const analyzeBeats = (path: string) => invoke<BeatAnalysis>("analyze_beats", { path });
 export const checkMusicRights = (path: string) => invoke<RightsReport>("check_music_rights", { path });
 export const suggestFreeMusic = (query: string) => invoke<FreeTrack[]>("suggest_free_music", { query });
+/** Descarga una pista sugerida y devuelve la ruta local donde quedó. */
+export const downloadTrack = (url: string, name: string) => invoke<string>("download_track", { url, name });
 export const aiEditPlan = (request: {
   transcript: string;
   duration: number;

@@ -180,9 +180,12 @@ export function installDevMock() {
       case "suggest_free_music":
         await sleep(400);
         return [
-          { title: "Sunny Days", creator: "Kevin CC", license: "CC BY 4.0", url: "https://example.org/1", duration: 132, audioUrl: null },
-          { title: "Night Drive", creator: "Openverse", license: "CC0 1.0", url: "https://example.org/2", duration: 98, audioUrl: null },
+          { title: "Sunny Days", creator: "Kevin CC", license: "CC BY 4.0", url: "https://example.org/1", duration: 132, audioUrl: `${DIR}/music.mp3` },
+          { title: "Night Drive", creator: "Openverse", license: "CC0 1.0", url: "https://example.org/2", duration: 98, audioUrl: `${DIR}/music.mp3` },
         ];
+      case "download_track":
+        await sleep(700);
+        return `${DIR}/music.mp3`;
       case "ai_edit_plan":
         await sleep(900);
         return {

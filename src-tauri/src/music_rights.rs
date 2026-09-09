@@ -12,7 +12,7 @@ use crate::secrets;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
 
 const USER_AGENT: &str = "CutVideo/0.1 (editor de vídeo de escritorio)";
@@ -354,4 +354,70 @@ mod tests {
         assert_eq!(urlencoding("a b&c"), "a+b%26c");
         assert_eq!(urlencoding("recording:\"Hey\""), "recording%3A%22Hey%22");
     }
+}
+
+/// Descarga una pista sugerida a `~/Música/CutVideo/` y devuelve su ruta,
+/// para poder escucharla y usarla sin salir de la app.
+#[tauri::command]
+pub async fn download_track(app: AppHandle, url: String, name: String) -> Result<String, String> {
+    // La URL viene de una API externa: solo https y nada de rutas locales.
+    if !url.starts_with("https://") {
+        return Err("Solo se descargan enlaces https".into());
+    }
+    let dir = app
+        .path()
+        .audio_dir()
+        .map_err(|e| format!("No se encontró la carpeta de música: {e}"))?
+        .join("CutVideo");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("No se pudo crear {}: {e}", dir.display()))?;
+
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("No se pudo descargar: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("La descarga respondió {}", response.status().as_u16()));
+    }
+    // La extensión sale del tipo de contenido; si no, mp3.
+    let ext = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|ct| match ct.split(';').next()?.trim() {
+            "audio/mpeg" | "audio/mp3" => Some("mp3"),
+            "audio/ogg" | "application/ogg" => Some("ogg"),
+            "audio/wav" | "audio/x-wav" => Some("wav"),
+            "audio/flac" | "audio/x-flac" => Some("flac"),
+            "audio/mp4" | "audio/x-m4a" => Some("m4a"),
+            _ => None,
+        })
+        .unwrap_or("mp3");
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    const MAX: usize = 80 * 1024 * 1024;
+    if bytes.len() > MAX {
+        return Err("La pista pesa más de 80 MB; descárgala desde su página".into());
+    }
+
+    let safe: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_') { c } else { '_' })
+        .take(60)
+        .collect();
+    let stem = safe.trim().to_string();
+    let stem = if stem.is_empty() { "pista".to_string() } else { stem };
+    let mut path = dir.join(format!("{stem}.{ext}"));
+    // Si ya existe, numeramos en vez de sobrescribir.
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{stem} {n}.{ext}"));
+        n += 1;
+    }
+    std::fs::write(&path, &bytes).map_err(|e| format!("No se pudo guardar: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
 }
