@@ -10,22 +10,30 @@ export interface ApiProvider {
 export const API_PROVIDERS: ApiProvider[] = [
   {
     id: "groq",
-    name: "Groq",
-    description: "Transcripción rápida en la nube (Whisper). Tiene plan gratuito.",
+    name: "Groq · gratis",
+    description:
+      "Subtítulos automáticos (Whisper) y autoedición con IA. Plan gratuito generoso: con esta sola clave funciona todo.",
     url: "https://console.groq.com/keys",
     placeholder: "gsk_…",
   },
   {
+    id: "gemini",
+    name: "Google Gemini · gratis",
+    description: "Alternativa gratuita para la autoedición con IA.",
+    url: "https://aistudio.google.com/apikey",
+    placeholder: "AIza…",
+  },
+  {
     id: "openai",
     name: "OpenAI",
-    description: "Modelos GPT para edición por texto y resúmenes.",
+    description: "Subtítulos y autoedición. De pago (sin plan gratuito).",
     url: "https://platform.openai.com/api-keys",
     placeholder: "sk-…",
   },
   {
     id: "anthropic",
     name: "Anthropic (Claude)",
-    description: "Autoedición con IA: títulos, momentos destacados y estilo.",
+    description: "Autoedición con IA de la máxima calidad. De pago (sin plan gratuito).",
     url: "https://console.anthropic.com/settings/keys",
     placeholder: "sk-ant-…",
   },

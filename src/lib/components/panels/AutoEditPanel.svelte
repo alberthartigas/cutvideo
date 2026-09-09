@@ -8,7 +8,7 @@
   import { SUBTITLE_STYLES } from "$lib/subtitles/cues";
   import { TRANSITIONS } from "$lib/transitions/presets";
   import { LANGUAGES, TRANSCRIBE_PROVIDERS } from "$lib/tauri/transcribe";
-  import { DEFAULT_AUTOEDIT, runAutoEdit, type AutoEditOptions, type AutoEditResult } from "$lib/autoedit/run";
+  import { AI_PROVIDERS, DEFAULT_AUTOEDIT, runAutoEdit, type AutoEditOptions, type AutoEditResult } from "$lib/autoedit/run";
   import { formatDuration } from "$lib/format";
 
   type Phase =
@@ -24,10 +24,13 @@
   let ready = $derived(project.videoTrack.clips.length > 0);
   let needsTranscribe = $derived(o.addSubtitles || o.useAi);
   let missingTranscribeKey = $derived(needsTranscribe && keys[o.provider] === false);
-  let missingAiKey = $derived(o.useAi && keys.anthropic === false);
+  let aiNeedsKey = $derived(AI_PROVIDERS.find((p) => p.id === o.aiProvider)?.needsKey ?? null);
+  let missingAiKey = $derived(o.useAi && aiNeedsKey !== null && keys[aiNeedsKey] === false);
 
   onMount(async () => {
-    for (const id of [...TRANSCRIBE_PROVIDERS.map((p) => p.id), "anthropic"]) {
+    const needed = new Set<string>([...TRANSCRIBE_PROVIDERS.map((p) => p.id)]);
+    for (const p of AI_PROVIDERS) if (p.needsKey) needed.add(p.needsKey);
+    for (const id of needed) {
       try {
         keys[id] = (await secretStatus("api", id)).present;
       } catch {
@@ -103,7 +106,11 @@
     {/if}
     {#if missingTranscribeKey || missingAiKey}
       <p class="mb-2 flex items-center justify-between gap-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-        <span>Faltan claves de API para {missingTranscribeKey ? "los subtítulos" : ""}{missingTranscribeKey && missingAiKey ? " y " : ""}{missingAiKey ? "la IA" : ""}.</span>
+        <span>
+          Falta la clave de {missingTranscribeKey ? "los subtítulos" : ""}{missingTranscribeKey && missingAiKey
+            ? " y de "
+            : ""}{missingAiKey ? "la IA" : ""}. Con una sola clave de Groq (gratis) funcionan las dos.
+        </span>
         <button class="btn h-6" onclick={() => (ui.settingsOpen = true)}><Settings size={11} /> Ajustes</button>
       </p>
     {/if}
@@ -144,12 +151,20 @@
         </label>
       {/if}
 
-      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useAi} /> Títulos y textos con IA</label>
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useAi} /> Títulos y textos</label>
       {#if o.useAi}
         <label class="sub">
-          <span>Estilo</span>
-          <input class="field h-6 flex-1 text-xs" bind:value={o.style} placeholder="dinámico, tutorial, vlog…" />
+          <span>Con</span>
+          <select class="field h-6 flex-1 text-xs" bind:value={o.aiProvider}>
+            {#each AI_PROVIDERS as p (p.id)}<option value={p.id}>{p.name} · {p.note}</option>{/each}
+          </select>
         </label>
+        {#if o.aiProvider !== "none"}
+          <label class="sub">
+            <span>Estilo</span>
+            <input class="field h-6 flex-1 text-xs" bind:value={o.style} placeholder="dinámico, tutorial, vlog…" />
+          </label>
+        {/if}
       {/if}
 
       {#if needsTranscribe}

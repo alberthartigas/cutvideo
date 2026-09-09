@@ -198,7 +198,7 @@ export function installDevMock() {
           subtitleStyle: "karaoke",
           transition: "zoom",
           musicQuery: "upbeat electronic background",
-          reasoning: "Plan simulado en modo navegador.",
+          reasoning: `Plan simulado en modo navegador (${(args.request as { provider?: string }).provider ?? "groq"}).`,
         };
       case "export_video": {
         await sleep(1200);

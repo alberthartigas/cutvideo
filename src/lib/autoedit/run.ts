@@ -3,6 +3,7 @@ import { clipEnd, project, type Clip } from "$lib/project.svelte";
 import { buildCues, SUBTITLE_STYLES } from "$lib/subtitles/cues";
 import { TITLE_PRESETS } from "$lib/text/title-presets";
 import { transcribe, type TranscribeProvider } from "$lib/tauri/transcribe";
+import type { Word } from "$lib/subtitles/cues";
 import { DEFAULT_TEXT, type TextData } from "$lib/text/styles";
 import { getTransition } from "$lib/transitions/presets";
 
@@ -77,6 +78,17 @@ export const checkMusicRights = (path: string) => invoke<RightsReport>("check_mu
 export const suggestFreeMusic = (query: string) => invoke<FreeTrack[]>("suggest_free_music", { query });
 /** Descarga una pista sugerida y devuelve la ruta local donde quedó. */
 export const downloadTrack = (url: string, name: string) => invoke<string>("download_track", { url, name });
+/** Servicio que redacta el plan. "none" no llama a ninguna API. */
+export type AiProvider = "none" | "groq" | "gemini" | "openai" | "anthropic";
+
+export const AI_PROVIDERS: { id: AiProvider; name: string; note: string; needsKey: string | null }[] = [
+  { id: "groq", name: "Groq", note: "gratis · recomendado", needsKey: "groq" },
+  { id: "gemini", name: "Google Gemini", note: "gratis", needsKey: "gemini" },
+  { id: "none", name: "Sin IA", note: "títulos sencillos, sin clave ni internet", needsKey: null },
+  { id: "openai", name: "OpenAI", note: "de pago", needsKey: "openai" },
+  { id: "anthropic", name: "Claude", note: "de pago · mejor calidad", needsKey: "anthropic" },
+];
+
 export const aiEditPlan = (request: {
   transcript: string;
   duration: number;
@@ -84,7 +96,43 @@ export const aiEditPlan = (request: {
   bpm: number | null;
   style: string;
   language: string;
+  provider: AiProvider;
 }) => invoke<EditPlan>("ai_edit_plan", { request });
+
+const capitalize = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * Plan sin IA: saca el título y las frases de la propia transcripción.
+ * No es tan bueno como un modelo, pero no necesita clave ni internet.
+ */
+export function localPlan(words: Word[], duration: number, subtitleStyle: string, transitionId: string): EditPlan {
+  const clean = (w: string) => w.replace(/[.,;:!?¿¡"«»]/g, "").trim();
+  const usable = words.map((w) => ({ ...w, word: clean(w.word) })).filter((w) => w.word.length > 0);
+
+  // Título: las primeras palabras que formen una frase corta.
+  const title = usable.slice(0, 5).map((w) => w.word).join(" ");
+
+  // Frases destacadas: una por cada tramo del vídeo, saltándose el principio.
+  const highlights: { time: number; text: string }[] = [];
+  const slots = Math.min(3, Math.max(0, Math.floor(duration / 6)));
+  for (let i = 1; i <= slots; i++) {
+    const at = (duration * i) / (slots + 1);
+    const from = usable.findIndex((w) => w.start >= at);
+    if (from < 0) continue;
+    const text = usable.slice(from, from + 3).map((w) => w.word).join(" ");
+    if (text) highlights.push({ time: usable[from].start, text: capitalize(text) });
+  }
+
+  return {
+    title: capitalize(title) || "Mi vídeo",
+    titlePreset: "pop",
+    highlights,
+    subtitleStyle,
+    transition: transitionId,
+    musicQuery: "upbeat background music",
+    reasoning: "Plan hecho sin IA, a partir de la propia transcripción.",
+  };
+}
 
 export interface AutoEditOptions {
   removeSilences: boolean;
@@ -102,7 +150,10 @@ export interface AutoEditOptions {
   useAi: boolean;
   style: string;
   language: string;
+  /** Servicio que transcribe el audio. */
   provider: TranscribeProvider;
+  /** Servicio que redacta el título y las frases. */
+  aiProvider: AiProvider;
 }
 
 export const DEFAULT_AUTOEDIT: AutoEditOptions = {
@@ -119,6 +170,8 @@ export const DEFAULT_AUTOEDIT: AutoEditOptions = {
   style: "dinámico, para redes sociales",
   language: "es",
   provider: "groq",
+  // Groq tiene plan gratuito y es la misma clave que los subtítulos.
+  aiProvider: "groq",
 };
 
 export interface AutoEditResult {
@@ -233,6 +286,7 @@ export async function runAutoEdit(
 
   // 5) Subtítulos.
   let transcriptText = "";
+  let lastWords: Word[] = [];
   if (options.addSubtitles) {
     onStep("Transcribiendo el audio…");
     const transcript = await transcribe({
@@ -241,6 +295,7 @@ export async function runAutoEdit(
       clips: clipsForBackend(project.videoTrack.clips),
     });
     transcriptText = transcript.text;
+    lastWords = transcript.words;
     if (transcript.words.length) {
       const style = SUBTITLE_STYLES.find((s) => s.id === options.subtitleStyle) ?? SUBTITLE_STYLES[0];
       const cues = buildCues(transcript.words, style.cue);
@@ -253,16 +308,20 @@ export async function runAutoEdit(
 
   // 6) Título y frases destacadas con IA.
   if (options.useAi) {
-    onStep("Pidiendo a Claude el plan de edición…");
+    const local = options.aiProvider === "none";
+    onStep(local ? "Redactando los textos…" : "Pidiendo el plan de edición…");
     try {
-      const plan = await aiEditPlan({
-        transcript: transcriptText,
-        duration: project.duration,
-        clipCount: project.videoTrack.clips.length,
-        bpm: result.bpm,
-        style: options.style,
-        language: options.language || "es",
-      });
+      const plan = local
+        ? localPlan(lastWords, project.duration, options.subtitleStyle, options.transitionId)
+        : await aiEditPlan({
+            transcript: transcriptText,
+            duration: project.duration,
+            clipCount: project.videoTrack.clips.length,
+            bpm: result.bpm,
+            style: options.style,
+            language: options.language || "es",
+            provider: options.aiProvider,
+          });
       result.plan = plan;
 
       const preset = TITLE_PRESETS.find((p) => p.id === plan.titlePreset) ?? TITLE_PRESETS[1];
