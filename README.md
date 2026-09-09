@@ -92,8 +92,11 @@ Hace falta guardar una vez la clave de firma del actualizador como secreto del
 repositorio:
 
 ```bash
-gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/cutvideo.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY --repo alberthartigas/cutvideo < ~/.tauri/cutvideo.key
 ```
+
+(`--repo` hace falta si no estás dentro de la carpeta del repositorio: `gh`
+deduce el repositorio del remoto de git, y desde otro sitio no lo encuentra.)
 
 Cada plataforma sube su propio `latest.json`, así que
 `scripts/merge-latest-json.sh` los junta para que el actualizador vea las dos.

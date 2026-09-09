@@ -55,8 +55,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Sin esta clave el paquete sale sin firmar y el actualizador lo
-          # rechaza. Se guarda con: gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/cutvideo.key
+          # Sin esta clave el paquete sale sin firmar y el actualizador lo rechaza.
+          # Se guarda con:
+          #   gh secret set TAURI_SIGNING_PRIVATE_KEY --repo alberthartigas/cutvideo < ~/.tauri/cutvideo.key
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
