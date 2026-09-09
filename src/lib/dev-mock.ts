@@ -47,6 +47,10 @@ const FILES: MediaInfo[] = [
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Proyectos guardados "en disco" mientras dura la sesión del navegador. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const devProjects: { file: any; thumbnail: string | null }[] = [];
+
 export function installDevMock() {
   mockWindows("main");
   // Las rutas "falsas" ya son URLs servidas por Vite.
@@ -60,7 +64,9 @@ export function installDevMock() {
       case "ffmpeg_version":
         return "simulado (modo navegador)";
       case "startup_files":
-        return FILES.map((f) => f.path);
+        // En el navegador arrancamos sin archivos, como al abrir la app normalmente;
+        // los medios de prueba se importan con el botón Importar.
+        return [];
       case "probe_media": {
         const info = FILES.find((f) => f.path === args.path);
         if (!info) throw `No existe el archivo: ${args.path}`;
@@ -110,6 +116,45 @@ export function installDevMock() {
           model: "simulado",
         };
       }
+      case "list_projects":
+        return devProjects.map(({ file, thumbnail }) => ({
+          id: file.id,
+          name: file.name,
+          createdAt: file.createdAt,
+          modifiedAt: file.modifiedAt,
+          sizeBytes: JSON.stringify(file).length,
+          clipCount: file.clipCount,
+          durationSec: file.durationSec,
+          thumbnail,
+          missingMedia: 0,
+        }));
+      case "load_project": {
+        const found = devProjects.find((p) => p.file.id === args.id);
+        if (!found) throw `No se pudo leer el proyecto ${args.id}`;
+        return found.file;
+      }
+      case "save_project": {
+        const file = args.file as { id: string; createdAt: number; modifiedAt: number };
+        file.modifiedAt = Date.now();
+        if (!file.createdAt) file.createdAt = file.modifiedAt;
+        const i = devProjects.findIndex((p) => p.file.id === file.id);
+        const entry = { file, thumbnail: (args.thumbnail as string | null) ?? null };
+        if (i >= 0) devProjects[i] = entry;
+        else devProjects.push(entry);
+        return {
+          ...file,
+          sizeBytes: JSON.stringify(file).length,
+          thumbnail: entry.thumbnail,
+          missingMedia: 0,
+        };
+      }
+      case "delete_project": {
+        const i = devProjects.findIndex((p) => p.file.id === args.id);
+        if (i >= 0) devProjects.splice(i, 1);
+        return null;
+      }
+      case "projects_storage":
+        return ["/tmp/cutvideo-mock/projects", devProjects.reduce((n, p) => n + JSON.stringify(p.file).length, 0)];
       case "detect_silences":
         // Dos pausas simuladas para probar el recorte automático.
         return [

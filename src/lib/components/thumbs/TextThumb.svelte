@@ -16,7 +16,6 @@
 
   let full = $derived<TextData>({
     ...DEFAULT_TEXT,
-    text: label,
     fontSize: 0.16,
     y: 0.5,
     maxWidth: 0.9,
@@ -24,6 +23,10 @@
     inDur: duration * 0.4,
     outDur: 0.01,
     ...data,
+    // Después del spread: los estilos de subtítulo traen `text: ""` y si no,
+    // borrarían la etiqueta y la miniatura saldría en blanco.
+    text: label,
+    wordTimes: undefined,
   });
 
   $effect(() => {

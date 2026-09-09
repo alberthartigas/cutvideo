@@ -69,7 +69,7 @@
     border-color: var(--muted);
   }
   .item:disabled {
-    opacity: 0.5;
+    opacity: 0.72;
   }
   .label {
     overflow: hidden;

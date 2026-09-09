@@ -6,7 +6,7 @@ import { mediaSrc } from "$lib/tauri/media";
  * vídeo en el proyecto se capturan frames reales (como CapCut); si no, patrones.
  */
 const svg = (a: string, b: string, label: string) =>
-  `data:image/svg+xml;utf8,${encodeURIComponent(
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="160" height="90" fill="url(#g)"/><text x="80" y="52" font-family="sans-serif" font-size="26" font-weight="700" fill="rgba(255,255,255,.85)" text-anchor="middle">${label}</text></svg>`,
   )}`;
 

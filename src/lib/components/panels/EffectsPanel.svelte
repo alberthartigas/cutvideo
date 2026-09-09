@@ -99,7 +99,7 @@
     background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
   .item:disabled {
-    opacity: 0.45;
+    opacity: 0.72;
   }
   .label {
     overflow: hidden;

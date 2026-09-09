@@ -5,6 +5,7 @@
   import Preview from "$lib/components/Preview.svelte";
   import Timeline from "$lib/components/Timeline.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
+  import StartScreen from "$lib/components/StartScreen.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
   import TextInspector from "$lib/components/TextInspector.svelte";
   import TransitionPanel from "$lib/components/TransitionPanel.svelte";
@@ -24,6 +25,7 @@
   import { anyDialogOpen, ui } from "$lib/ui.svelte";
   import { refreshSamples } from "$lib/preview/samples.svelte";
   import { layout } from "$lib/layout.svelte";
+  import { session } from "$lib/session.svelte";
   import Splitter from "$lib/components/Splitter.svelte";
   import { startDrag } from "$lib/drag";
 
@@ -49,6 +51,15 @@
   $effect(() => {
     void project.videoTrack.clips.length;
     refreshSamples();
+  });
+
+  // Guardado automático: cualquier cambio en la biblioteca o el timeline lo programa.
+  $effect(() => {
+    void project.media.length;
+    void project.tracks.map((t) => t.clips.length).join();
+    void project.clipCount;
+    void project.duration;
+    session.touch();
   });
 
   async function importPaths(paths: string[]) {
@@ -177,8 +188,14 @@
       .then((v) => (ffmpeg = { ok: true, text: `FFmpeg ${v}` }))
       .catch((e) => (ffmpeg = { ok: false, text: `FFmpeg no disponible: ${e}` }));
 
-    // Archivos abiertos desde la línea de comandos / "Abrir con".
-    startupFiles().then(importPaths).catch(() => {});
+    // Archivos abiertos desde la línea de comandos / "Abrir con": crean un proyecto.
+    startupFiles()
+      .then((paths) => {
+        if (paths.length === 0) return;
+        if (!session.open) session.create();
+        return importPaths(paths);
+      })
+      .catch(() => {});
 
     // Arrastrar archivos desde Finder / Explorador sobre la ventana.
     let unlisten: (() => void) | undefined;
@@ -199,6 +216,9 @@
 
 <svelte:window onkeydown={onKeyDown} onkeyup={onKeyUp} />
 
+{#if !session.open}
+  <StartScreen />
+{:else}
 <div class="flex h-screen flex-col bg-bg text-text">
   <TitleBar />
 
@@ -301,3 +321,4 @@
     <SubtitlesDialog />
   {/if}
 </div>
+{/if}

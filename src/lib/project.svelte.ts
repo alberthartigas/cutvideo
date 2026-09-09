@@ -241,6 +241,24 @@ class ProjectStore {
     this.canRedo = this.#future.length > 0;
   }
 
+  /** Deja el proyecto en blanco (proyecto nuevo). */
+  reset() {
+    this.media = [];
+    this.tracks = [
+      { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
+      { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
+      { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
+      { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
+    ];
+    this.playhead = 0;
+    this.playing = false;
+    this.zoom = 60;
+    this.selectedId = null;
+    this.#past = [];
+    this.#future = [];
+    this.#syncHistory();
+  }
+
   // ---- Biblioteca ----
 
   /** Añade un archivo a la biblioteca. Devuelve false si ya estaba. */
