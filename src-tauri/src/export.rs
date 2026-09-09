@@ -42,6 +42,9 @@ pub struct ExportClip {
     /// Transición hacia el clip siguiente (pista principal).
     #[serde(default)]
     pub transition: Option<ExportTransition>,
+    /// Filtros de color de ffmpeg ya montados por el frontend (validados abajo).
+    #[serde(default)]
+    pub filters: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -117,6 +120,32 @@ enum RunError {
     Failed(String),
 }
 
+/// Solo permitimos los filtros que genera el frontend: nombres conocidos y
+/// caracteres seguros, para que nada pueda inyectar otra cosa en el grafo.
+fn safe_filters(raw: &Option<String>) -> Option<String> {
+    const ALLOWED: &[&str] = &[
+        "hue", "eq", "colorchannelmixer", "colorbalance", "gblur", "vignette", "negate",
+    ];
+    let f = raw.as_deref()?.trim();
+    if f.is_empty() || f.len() > 500 {
+        return None;
+    }
+    if !f
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '=' | ':' | ',' | '.' | '-' | '_'))
+    {
+        return None;
+    }
+    if f.split(',').all(|part| {
+        let name = part.split('=').next().unwrap_or("");
+        ALLOWED.contains(&name)
+    }) {
+        Some(f.to_string())
+    } else {
+        None
+    }
+}
+
 pub(crate) fn sec(v: f64) -> String {
     format!("{v:.4}")
 }
@@ -179,10 +208,11 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     let mut filters: Vec<String> = Vec::new();
     for (i, c) in plan.video.iter().enumerate() {
         // Todos los segmentos al mismo tamaño/fps/formato para poder concatenarlos.
+        let fx = safe_filters(&c.filters).map(|f| format!(",{f}")).unwrap_or_default();
         filters.push(format!(
             "[{i}:v]setpts=PTS-STARTPTS,\
              scale={w}:{h}:force_original_aspect_ratio=decrease:flags=bicubic,\
-             pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={fps},format=yuv420p[v{i}]"
+             pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={fps}{fx},format=yuv420p[v{i}]"
         ));
         if c.has_audio {
             filters.push(format!(
@@ -500,8 +530,20 @@ pub fn cancel_export(state: State<'_, ExportState>) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rejects_unsafe_filters() {
+        assert!(safe_filters(&Some("eq=contrast=1.2,hue=h=10".into())).is_some());
+        assert!(safe_filters(&Some("vignette=angle=0.3".into())).is_some());
+        // Nada de comillas, espacios, tuberías ni filtros fuera de la lista.
+        assert!(safe_filters(&Some("movie=/etc/passwd".into())).is_none());
+        assert!(safe_filters(&Some("eq=contrast=1[x];[x]drawtext=text=hola".into())).is_none());
+        assert!(safe_filters(&Some("eq=contrast=1 -y /tmp/x".into())).is_none());
+        assert!(safe_filters(&Some("".into())).is_none());
+        assert!(safe_filters(&None).is_none());
+    }
+
     fn clip(path: &str, in_sec: f64, out: f64, start: f64, has_audio: bool) -> ExportClip {
-        ExportClip { path: path.into(), in_sec, out, start, has_audio, transition: None }
+        ExportClip { path: path.into(), in_sec, out, start, has_audio, transition: None, filters: None }
     }
 
     /// Prueba de humo del grafo de filtros con el ffmpeg del sistema. Se activa con
@@ -534,6 +576,7 @@ mod tests {
                 // A → B con fundido de 0,5 s (solape); B → mute corte seco.
                 ExportClip {
                     transition: Some(ExportTransition { xfade: "fade".into(), duration: 0.5 }),
+                    filters: Some("eq=saturation=1.5:contrast=1.1,vignette=angle=0.3".into()),
                     ..clip(&p("clipA.mp4"), 0.5, 2.5, 0.0, true)
                 },
                 clip(&p("clipB.mp4"), 1.0, 3.0, 1.5, true),

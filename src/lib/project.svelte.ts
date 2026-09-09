@@ -2,6 +2,7 @@ import type { MediaInfo } from "$lib/tauri/media";
 import { DEFAULT_TEXT, TEXT_DEFAULT_DURATION, type TextData } from "$lib/text/styles";
 import type { FrameSize } from "$lib/text/layout";
 import { DEFAULT_TRANSITION_DURATION, TRANSITION_MAX, TRANSITION_MIN } from "$lib/transitions/presets";
+import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffects } from "$lib/effects/presets";
 
 export type { FrameSize };
 export type TrackKind = "video" | "audio" | "text";
@@ -25,6 +26,8 @@ export interface Clip {
   text?: TextData;
   /** Pista magnética: transición hacia el clip siguiente (los dos clips se solapan esa duración). */
   transition?: { id: string; duration: number };
+  /** Filtro de color y ajustes del clip. */
+  effects?: ClipEffects;
 }
 
 export interface ActiveTransition {
@@ -303,10 +306,20 @@ class ProjectStore {
     return clip;
   }
 
-  /** Sustituye los subtítulos (pista S1) por `cues`, ya ordenados y sin solapes. */
+  /**
+   * Sustituye los subtítulos (pista S1) por `cues`, ya ordenados y sin solapes.
+   * Se recortan al final de la pista principal: un subtítulo suelto no debe
+   * alargar el proyecto por encima del vídeo.
+   */
   setSubtitles(cues: { text: string; start: number; end: number; wordTimes?: [number, number][] }[], style: TextData) {
     this.commit();
     const track = this.subtitleTrack;
+    const limit = this.videoTrack.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
+    if (limit > 0) {
+      cues = cues
+        .filter((c) => c.start < limit - MIN_CLIP)
+        .map((c) => ({ ...c, end: Math.min(c.end, limit) }));
+    }
     track.clips = cues.map((cue) => ({
       id: newId(),
       mediaPath: "",
@@ -328,6 +341,93 @@ class ProjectStore {
     if (!ref?.clip.text) return;
     Object.assign(ref.clip.text, patch);
     if (patch.text !== undefined) ref.clip.name = patch.text.split("\n")[0].trim() || "Texto";
+  }
+
+  /**
+   * Quita de la pista principal los tramos `[inicio, fin]` indicados (en tiempo de
+   * timeline) y recompacta. Se usa para eliminar silencios automáticamente.
+   * Devuelve los segundos eliminados.
+   */
+  removeRanges(ranges: [number, number][]): number {
+    const track = this.videoTrack;
+    if (track.clips.length === 0 || ranges.length === 0) return 0;
+    // Fusionamos los rangos para poder recorrerlos una sola vez.
+    const merged: [number, number][] = [];
+    for (const [s, e] of [...ranges].sort((a, b) => a[0] - b[0])) {
+      const last = merged[merged.length - 1];
+      if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+      else merged.push([s, e]);
+    }
+
+    this.commit();
+    const out: Clip[] = [];
+    let removed = 0;
+    for (const clip of track.clips) {
+      const from = clip.start;
+      const to = clipEnd(clip);
+      // Trozos del clip que sobreviven, en tiempo de timeline.
+      let cursor = from;
+      const keep: [number, number][] = [];
+      for (const [s, e] of merged) {
+        if (e <= cursor || s >= to) continue;
+        if (s > cursor) keep.push([cursor, Math.min(s, to)]);
+        cursor = Math.max(cursor, Math.min(e, to));
+      }
+      if (cursor < to) keep.push([cursor, to]);
+      removed += to - from - keep.reduce((n, [s, e]) => n + (e - s), 0);
+      for (const [s, e] of keep) {
+        if (e - s < MIN_CLIP) continue;
+        out.push({
+          ...clip,
+          id: out.length === 0 && s === from ? clip.id : newId(),
+          in: clip.in + (s - from),
+          out: clip.in + (e - from),
+          start: s,
+          // La transición solo tiene sentido en el último trozo del clip original.
+          transition: e === to ? clip.transition : undefined,
+          effects: clip.effects ? { preset: clip.effects.preset, adjust: { ...clip.effects.adjust } } : undefined,
+        });
+      }
+    }
+    track.clips = out;
+    this.#relayout(track);
+    this.selectedId = null;
+    return removed;
+  }
+
+  /** Instantes de los cortes de la pista principal (el inicio de cada clip menos el primero). */
+  cutPoints(): number[] {
+    return this.videoTrack.clips.slice(1).map((c) => c.start);
+  }
+
+  /** Aplica un preset de efecto (o lo quita con null) al clip. */
+  setEffect(clipId: string, presetId: string | null) {
+    const ref = this.findClip(clipId);
+    if (!ref || ref.clip.kind === "text") return;
+    this.commit();
+    const fx = ref.clip.effects ?? { preset: null, adjust: { ...DEFAULT_ADJUSTMENTS } };
+    fx.preset = presetId;
+    ref.clip.effects = fx.preset === null && isDefaultAdjust(fx.adjust) ? undefined : fx;
+  }
+
+  /** Cambia los ajustes manuales de color del clip. */
+  setAdjust(clipId: string, patch: Partial<Adjustments>) {
+    const ref = this.findClip(clipId);
+    if (!ref || ref.clip.kind === "text") return;
+    const fx = ref.clip.effects ?? { preset: null, adjust: { ...DEFAULT_ADJUSTMENTS } };
+    fx.adjust = { ...fx.adjust, ...patch };
+    ref.clip.effects = fx.preset === null && isDefaultAdjust(fx.adjust) ? undefined : fx;
+  }
+
+  /** Copia el efecto y los ajustes del clip a todos los de su pista. */
+  applyEffectToAll(clipId: string) {
+    const ref = this.findClip(clipId);
+    if (!ref) return;
+    this.commit();
+    const fx = ref.clip.effects;
+    for (const c of ref.track.clips) {
+      c.effects = fx ? { preset: fx.preset, adjust: { ...fx.adjust } } : undefined;
+    }
   }
 
   /** Pone (o quita, con `id` null) la transición entre `clipId` y el clip siguiente. */

@@ -1,0 +1,191 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { CircleCheck, LoaderCircle, Settings, Sparkles, TriangleAlert, WandSparkles } from "@lucide/svelte";
+  import PanelShell from "./PanelShell.svelte";
+  import { project } from "$lib/project.svelte";
+  import { ui } from "$lib/ui.svelte";
+  import { secretStatus } from "$lib/tauri/secrets";
+  import { SUBTITLE_STYLES } from "$lib/subtitles/cues";
+  import { TRANSITIONS } from "$lib/transitions/presets";
+  import { LANGUAGES, TRANSCRIBE_PROVIDERS } from "$lib/tauri/transcribe";
+  import { DEFAULT_AUTOEDIT, runAutoEdit, type AutoEditOptions, type AutoEditResult } from "$lib/autoedit/run";
+  import { formatDuration } from "$lib/format";
+
+  type Phase =
+    | { kind: "idle" }
+    | { kind: "running"; step: string }
+    | { kind: "done"; result: AutoEditResult }
+    | { kind: "error"; message: string };
+
+  let phase = $state<Phase>({ kind: "idle" });
+  let o = $state<AutoEditOptions>({ ...DEFAULT_AUTOEDIT });
+  let keys = $state<Record<string, boolean>>({});
+
+  let ready = $derived(project.videoTrack.clips.length > 0);
+  let needsTranscribe = $derived(o.addSubtitles || o.useAi);
+  let missingTranscribeKey = $derived(needsTranscribe && keys[o.provider] === false);
+  let missingAiKey = $derived(o.useAi && keys.anthropic === false);
+
+  onMount(async () => {
+    for (const id of [...TRANSCRIBE_PROVIDERS.map((p) => p.id), "anthropic"]) {
+      try {
+        keys[id] = (await secretStatus("api", id)).present;
+      } catch {
+        keys[id] = false;
+      }
+    }
+  });
+
+  async function start() {
+    phase = { kind: "running", step: "Preparando…" };
+    try {
+      const result = await runAutoEdit(o, (step) => (phase = { kind: "running", step }));
+      phase = { kind: "done", result };
+    } catch (e) {
+      phase = { kind: "error", message: String(e) };
+    }
+  }
+</script>
+
+<PanelShell title="Autoedición" hint="Monta el vídeo entero: quita silencios, pone transiciones, subtítulos y textos">
+  {#if phase.kind === "running"}
+    <div class="flex flex-col items-center gap-3 px-3 py-10 text-center">
+      <LoaderCircle size={26} class="animate-spin text-accent" />
+      <p class="text-sm">{phase.step}</p>
+      <p class="text-xs text-muted">No cierres la app mientras trabaja.</p>
+    </div>
+  {:else if phase.kind === "done"}
+    {@const r = phase.result}
+    <div class="flex flex-col gap-3 text-xs">
+      <div class="flex items-center gap-2 text-sm">
+        <CircleCheck size={18} class="text-emerald-500" />
+        <span class="font-medium">Vídeo montado</span>
+      </div>
+      <ul class="space-y-1 text-muted">
+        {#if r.removedSeconds > 0}<li>· {formatDuration(r.removedSeconds).slice(0, -3)} de silencios quitados</li>{/if}
+        {#if r.cuts}<li>· {r.cuts} cortes</li>{/if}
+        {#if r.transitions}<li>· {r.transitions} transiciones</li>{/if}
+        {#if r.subtitles}<li>· {r.subtitles} subtítulos</li>{/if}
+        {#if r.texts}<li>· {r.texts} textos</li>{/if}
+        {#if r.bpm}<li>· música a {r.bpm.toFixed(0)} BPM</li>{/if}
+      </ul>
+      {#if r.plan}
+        <div class="rounded-lg border border-border bg-panel-2 p-2">
+          <p class="flex items-center gap-1.5 font-medium"><Sparkles size={12} class="text-accent" /> {r.plan.title}</p>
+          <p class="mt-1 text-muted">{r.plan.reasoning}</p>
+          {#if r.plan.musicQuery}
+            <p class="mt-1 text-muted">Música sugerida: «{r.plan.musicQuery}» (búscala en la sección Audio).</p>
+          {/if}
+        </div>
+      {/if}
+      {#each r.notes as note (note)}
+        <p class="flex gap-1.5 text-muted"><TriangleAlert size={12} class="mt-0.5 shrink-0 text-amber-500" />{note}</p>
+      {/each}
+      <div class="flex gap-2">
+        <button class="btn h-7 flex-1 justify-center" onclick={() => project.undo()}>Deshacer</button>
+        <button class="btn-accent h-7 flex-1 justify-center" onclick={() => (phase = { kind: "idle" })}>Listo</button>
+      </div>
+    </div>
+  {:else if phase.kind === "error"}
+    <div class="flex flex-col gap-3 text-xs">
+      <div class="flex items-start gap-2">
+        <TriangleAlert size={16} class="mt-0.5 shrink-0 text-red-500" />
+        <p class="whitespace-pre-wrap">{phase.message}</p>
+      </div>
+      <button class="btn-accent h-7 justify-center" onclick={() => (phase = { kind: "idle" })}>Volver</button>
+    </div>
+  {:else}
+    <button class="btn-accent mb-3 h-9 w-full justify-center text-sm" disabled={!ready} onclick={start}>
+      <WandSparkles size={15} /> Autoeditar
+    </button>
+    {#if !ready}
+      <p class="mb-2 text-xs text-muted">Añade clips a la pista principal para poder autoeditar.</p>
+    {/if}
+    {#if missingTranscribeKey || missingAiKey}
+      <p class="mb-2 flex items-center justify-between gap-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+        <span>Faltan claves de API para {missingTranscribeKey ? "los subtítulos" : ""}{missingTranscribeKey && missingAiKey ? " y " : ""}{missingAiKey ? "la IA" : ""}.</span>
+        <button class="btn h-6" onclick={() => (ui.settingsOpen = true)}><Settings size={11} /> Ajustes</button>
+      </p>
+    {/if}
+
+    <div class="flex flex-col gap-2 text-xs">
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.removeSilences} /> Quitar silencios</label>
+      {#if o.removeSilences}
+        <label class="sub">
+          <span>Sensibilidad</span>
+          <input class="flex-1 accent-accent" type="range" min="-50" max="-15" step="1" bind:value={o.silenceThreshold} />
+          <span class="w-12 text-right tabular-nums">{o.silenceThreshold} dB</span>
+        </label>
+        <label class="sub">
+          <span>Pausa mín.</span>
+          <input class="flex-1 accent-accent" type="range" min="0.2" max="2" step="0.1" bind:value={o.silenceMin} />
+          <span class="w-12 text-right tabular-nums">{o.silenceMin.toFixed(1)} s</span>
+        </label>
+      {/if}
+
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.addTransitions} /> Poner transiciones</label>
+      {#if o.addTransitions}
+        <label class="sub">
+          <span>Tipo</span>
+          <select class="field h-6 flex-1 text-xs" bind:value={o.transitionId}>
+            {#each TRANSITIONS as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
+
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.syncToBeat} /> Cortar al ritmo de la música</label>
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.addSubtitles} /> Subtítulos automáticos</label>
+      {#if o.addSubtitles}
+        <label class="sub">
+          <span>Estilo</span>
+          <select class="field h-6 flex-1 text-xs" bind:value={o.subtitleStyle}>
+            {#each SUBTITLE_STYLES as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
+
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useAi} /> Títulos y textos con IA</label>
+      {#if o.useAi}
+        <label class="sub">
+          <span>Estilo</span>
+          <input class="field h-6 flex-1 text-xs" bind:value={o.style} placeholder="dinámico, tutorial, vlog…" />
+        </label>
+      {/if}
+
+      {#if needsTranscribe}
+        <label class="sub">
+          <span>Idioma</span>
+          <select class="field h-6 flex-1 text-xs" bind:value={o.language}>
+            {#each LANGUAGES as l (l.code)}<option value={l.code}>{l.name}</option>{/each}
+          </select>
+        </label>
+        <label class="sub">
+          <span>Transcribe</span>
+          <select class="field h-6 flex-1 text-xs" bind:value={o.provider}>
+            {#each TRANSCRIBE_PROVIDERS as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
+    </div>
+    <p class="mt-3 text-[10px] text-muted">Todo lo que haga se puede deshacer con ⌘Z.</p>
+  {/if}
+</PanelShell>
+
+<style>
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 22px;
+    color: var(--muted);
+  }
+  .sub > span:first-child {
+    width: 68px;
+    flex-shrink: 0;
+  }
+</style>

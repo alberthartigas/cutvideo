@@ -110,6 +110,48 @@ export function installDevMock() {
           model: "simulado",
         };
       }
+      case "detect_silences":
+        // Dos pausas simuladas para probar el recorte automático.
+        return [
+          { start: 1.4, end: 2.4 },
+          { start: 4.8, end: 5.9 },
+        ];
+      case "analyze_beats": {
+        await sleep(400);
+        const bpm = 120;
+        const beats = Array.from({ length: 60 }, (_, i) => (i * 60) / bpm);
+        return { bpm, beats, downbeats: beats.filter((_, i) => i % 4 === 0), duration: 30, confidence: 0.8 };
+      }
+      case "check_music_rights":
+        await sleep(600);
+        return {
+          verdict: "copyrighted",
+          confidence: 0.9,
+          tags: { title: "Canción simulada", artist: "Artista", album: null, isrc: "ESA011234567", copyright: null, publisher: null },
+          findings: ["Tiene código ISRC (ESA011234567): es una grabación registrada comercialmente."],
+          limitations: ["Sin huella acústica: modo navegador."],
+          identifiedAs: "Artista — Canción simulada",
+        };
+      case "suggest_free_music":
+        await sleep(400);
+        return [
+          { title: "Sunny Days", creator: "Kevin CC", license: "CC BY 4.0", url: "https://example.org/1", duration: 132, audioUrl: null },
+          { title: "Night Drive", creator: "Openverse", license: "CC0 1.0", url: "https://example.org/2", duration: 98, audioUrl: null },
+        ];
+      case "ai_edit_plan":
+        await sleep(900);
+        return {
+          title: "Así se hace",
+          titlePreset: "pop",
+          highlights: [
+            { time: 2, text: "Empieza aquí" },
+            { time: 6, text: "El truco" },
+          ],
+          subtitleStyle: "karaoke",
+          transition: "zoom",
+          musicQuery: "upbeat electronic background",
+          reasoning: "Plan simulado en modo navegador.",
+        };
       case "export_video": {
         await sleep(1200);
         const plan = args.plan as { output: string };

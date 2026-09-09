@@ -1,26 +1,28 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import { FolderOpen, Plus } from "@lucide/svelte";
   import TitleBar from "$lib/components/TitleBar.svelte";
   import Preview from "$lib/components/Preview.svelte";
   import Timeline from "$lib/components/Timeline.svelte";
+  import Sidebar from "$lib/components/Sidebar.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
   import TextInspector from "$lib/components/TextInspector.svelte";
   import TransitionPanel from "$lib/components/TransitionPanel.svelte";
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import SubtitlesDialog from "$lib/components/SubtitlesDialog.svelte";
-  import {
-    ffmpegVersion,
-    pickMediaFiles,
-    probeMedia,
-    startupFiles,
-    type MediaInfo,
-  } from "$lib/tauri/media";
+  import MediaPanel from "$lib/components/panels/MediaPanel.svelte";
+  import AudioPanel from "$lib/components/panels/AudioPanel.svelte";
+  import TextPanel from "$lib/components/panels/TextPanel.svelte";
+  import SubtitlesPanel from "$lib/components/panels/SubtitlesPanel.svelte";
+  import EffectsPanel from "$lib/components/panels/EffectsPanel.svelte";
+  import TransitionsPanel from "$lib/components/panels/TransitionsPanel.svelte";
+  import AutoEditPanel from "$lib/components/panels/AutoEditPanel.svelte";
+  import { ffmpegVersion, pickMediaFiles, probeMedia, startupFiles, type MediaInfo } from "$lib/tauri/media";
   import { basename, formatDuration } from "$lib/format";
   import { project } from "$lib/project.svelte";
   import { anyDialogOpen, ui } from "$lib/ui.svelte";
+  import { refreshSamples } from "$lib/preview/samples.svelte";
   import { startDrag } from "$lib/drag";
 
   let timeline = $state<ReturnType<typeof Timeline>>();
@@ -40,6 +42,12 @@
   let transitionNext = $derived(
     inspectorClip && project.selected?.track.magnetic ? project.nextClip(inspectorClip) : null,
   );
+
+  // Las miniaturas de transiciones y efectos usan frames reales del proyecto.
+  $effect(() => {
+    void project.videoTrack.clips.length;
+    refreshSamples();
+  });
 
   async function importPaths(paths: string[]) {
     if (paths.length === 0) return;
@@ -192,70 +200,53 @@
 <div class="flex h-screen flex-col bg-bg text-text">
   <TitleBar />
 
-  <div class="grid min-h-0 flex-1 grid-cols-[260px_1fr_300px] gap-2 p-2">
-    <!-- Biblioteca -->
-    <aside class="panel">
-      <div class="panel-header">
-        <span>Medios</span>
-        <button class="btn-accent" onclick={importFromDialog} disabled={importing}>
-          <FolderOpen size={13} />
-          {importing ? "Importando…" : "Importar"}
-        </button>
-      </div>
-      {#if error}
-        <p class="border-b border-border bg-red-500/10 px-3 py-2 text-xs text-red-500">{error}</p>
-      {/if}
-      <ul class="flex-1 space-y-1 overflow-auto p-2">
-        {#each project.media as item (item.path)}
-          <li class="relative">
-            <button
-              class="media-item pr-9"
-              class:active={selectedMedia?.path === item.path && !inspectorClip}
-              onclick={() => {
-                selectedMedia = item;
-                project.selectedId = null;
-              }}
-              ondblclick={() => project.addClip(item)}
-              onpointerdown={(e) => onMediaPointerDown(e, item)}
-              title="Doble clic o arrastrar al timeline para añadirlo"
-            >
-              <span class="truncate text-sm">{item.fileName}</span>
-              <span class="text-[11px] text-muted">
-                {formatDuration(item.durationSec)}
-                · {item.video ? `${item.video.width}×${item.video.height}` : "solo audio"}
-              </span>
-            </button>
-            <button
-              class="tool absolute top-1/2 right-1.5 h-6 w-6 -translate-y-1/2 justify-center px-0"
-              title="Añadir al final del timeline"
-              onclick={() => project.addClip(item)}
-            >
-              <Plus size={14} />
-            </button>
-          </li>
+  <div class="flex min-h-0 flex-1">
+    <Sidebar />
+
+    <div class="grid min-h-0 flex-1 grid-cols-[248px_1fr_300px] gap-2 p-2">
+      <!-- Sección elegida en la barra lateral -->
+      <div class="min-h-0">
+        {#if ui.panel === "media"}
+          <MediaPanel
+            {importing}
+            {error}
+            onImport={importFromDialog}
+            onDragToTimeline={onMediaPointerDown}
+            bind:selected={selectedMedia}
+          />
+        {:else if ui.panel === "audio"}
+          <AudioPanel />
+        {:else if ui.panel === "text"}
+          <TextPanel />
+        {:else if ui.panel === "subtitles"}
+          <SubtitlesPanel />
+        {:else if ui.panel === "effects"}
+          <EffectsPanel />
+        {:else if ui.panel === "transitions"}
+          <TransitionsPanel />
         {:else}
-          <li class="px-3 py-8 text-center text-xs text-muted">Arrastra vídeos aquí o pulsa Importar</li>
-        {/each}
-      </ul>
-    </aside>
-
-    <!-- Preview -->
-    <section class="panel">
-      <Preview />
-    </section>
-
-    <!-- Inspector -->
-    <aside class="panel">
-      <div class="panel-header"><span>{inspectorClip?.kind === "text" ? "Texto" : "Inspector"}</span></div>
-      {#if inspectorClip?.kind === "text"}
-        <TextInspector clip={inspectorClip} />
-      {:else}
-        {#if inspectorClip && transitionNext}
-          <TransitionPanel clip={inspectorClip} next={transitionNext} />
+          <AutoEditPanel />
         {/if}
-        <MediaInfoPanel media={inspectorMedia} clip={inspectorClip} />
-      {/if}
-    </aside>
+      </div>
+
+      <!-- Preview -->
+      <section class="panel">
+        <Preview />
+      </section>
+
+      <!-- Inspector -->
+      <aside class="panel">
+        <div class="panel-header"><span>{inspectorClip?.kind === "text" ? "Texto" : "Inspector"}</span></div>
+        {#if inspectorClip?.kind === "text"}
+          <TextInspector clip={inspectorClip} />
+        {:else}
+          {#if inspectorClip && transitionNext}
+            <TransitionPanel clip={inspectorClip} next={transitionNext} />
+          {/if}
+          <MediaInfoPanel media={inspectorMedia} clip={inspectorClip} />
+        {/if}
+      </aside>
+    </div>
   </div>
 
   <div class="mx-2 mb-2 h-60 shrink-0">

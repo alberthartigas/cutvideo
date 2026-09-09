@@ -1,5 +1,8 @@
+mod ai;
+mod analyze;
 mod export;
 mod media;
+mod music_rights;
 mod secrets;
 mod transcribe;
 
@@ -55,6 +58,11 @@ pub fn run() {
             secrets::secret_status,
             secrets::secret_delete,
             transcribe::transcribe,
+            analyze::detect_silences,
+            analyze::analyze_beats,
+            music_rights::check_music_rights,
+            music_rights::suggest_free_music,
+            ai::ai_edit_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

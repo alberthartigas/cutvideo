@@ -5,6 +5,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { clipEnd, effectiveTransition, project, type Clip, type FrameSize } from "$lib/project.svelte";
 import { renderTextClips } from "$lib/text/render";
 import { getTransition } from "$lib/transitions/presets";
+import { effectsFfmpeg } from "$lib/effects/presets";
 
 export type { FrameSize };
 
@@ -17,6 +18,8 @@ export interface ExportClip {
   hasAudio: boolean;
   /** Transición hacia el clip siguiente (solo pista principal). */
   transition?: { xfade: string; duration: number } | null;
+  /** Cadena de filtros de color de ffmpeg, o null. */
+  filters?: string | null;
 }
 
 export interface ExportOverlay {
@@ -87,7 +90,12 @@ export function buildExportPlan(
       const next = videoClips[i + 1];
       const preset = c.transition ? getTransition(c.transition.id) : null;
       const duration = next ? effectiveTransition(c, next) : 0;
-      return { ...toClip(c), transition: preset && duration > 0 ? { xfade: preset.xfade, duration } : null };
+      const filters = effectsFfmpeg(c.effects, size.height);
+      return {
+        ...toClip(c),
+        transition: preset && duration > 0 ? { xfade: preset.xfade, duration } : null,
+        filters: filters || null,
+      };
     }),
     audio: project.audioTrack.clips.map(toClip),
     encoder,

@@ -24,9 +24,17 @@ export const API_PROVIDERS: ApiProvider[] = [
   },
   {
     id: "anthropic",
-    name: "Anthropic",
-    description: "Modelos Claude para edición por texto.",
+    name: "Anthropic (Claude)",
+    description: "Autoedición con IA: títulos, momentos destacados y estilo.",
     url: "https://console.anthropic.com/settings/keys",
     placeholder: "sk-ant-…",
+  },
+  {
+    id: "acoustid",
+    name: "AcoustID",
+    description:
+      "Identifica la música por huella acústica para avisarte de derechos de autor. Gratis. Necesita también `brew install chromaprint`.",
+    url: "https://acoustid.org/new-application",
+    placeholder: "clave de aplicación",
   },
 ];

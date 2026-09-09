@@ -6,6 +6,7 @@
   import { formatDuration } from "$lib/format";
   import { renderTextClips } from "$lib/text/render";
   import { transitionFrame } from "$lib/transitions/presets";
+  import { effectsCss, effectsVignette } from "$lib/effects/presets";
 
   // Reproductor provisional: un <video> para V1 y un <audio> para A1, esclavizados
   // a un reloj de pared, más un canvas transparente encima con los textos animados.
@@ -15,6 +16,7 @@
   let videoA = $state<HTMLVideoElement>();
   let videoB = $state<HTMLVideoElement>();
   let flashEl = $state<HTMLDivElement>();
+  let vignetteEl = $state<HTMLDivElement>();
   let audioEl = $state<HTMLAudioElement>();
   const slots: { clipId: string | null }[] = [{ clipId: null }, { clipId: null }];
   let textCanvas = $state<HTMLCanvasElement>();
@@ -56,6 +58,13 @@
 
   const BASE_STYLE = "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;";
 
+  /** Estilo del elemento: transición + filtro de color del clip. */
+  function styleFor(clip: Clip, extra: string): string {
+    const css = effectsCss(clip.effects, viewH);
+    const filter = css ? `filter:${css};` : "";
+    return `${BASE_STYLE}${filter}${extra}`;
+  }
+
   /** Pista principal: clip activo, transición en curso y precarga del siguiente. */
   function syncVideo(t: number, playing: boolean) {
     const track = project.videoTrack;
@@ -73,8 +82,8 @@
     const frame = tr ? transitionFrame(tr.id, tr.p) : null;
     for (const el of [videoA, videoB]) {
       if (!el) continue;
-      if (el === elA && active) el.style.cssText = `${BASE_STYLE}${frame?.a ?? ""}`;
-      else if (el === elB && tr) el.style.cssText = `${BASE_STYLE}${frame?.b ?? ""}`;
+      if (el === elA && active) el.style.cssText = styleFor(active, frame?.a ?? "");
+      else if (el === elB && tr && incoming) el.style.cssText = styleFor(incoming, frame?.b ?? "");
       else {
         el.style.cssText = `${BASE_STYLE}visibility:hidden`;
         if (!el.paused && el !== elB) el.pause();
@@ -83,6 +92,11 @@
     if (flashEl) {
       flashEl.style.opacity = String(frame?.flash ?? 0);
       flashEl.style.background = frame?.flashColor ?? "#fff";
+    }
+    // La viñeta va en su propia capa (un filtro CSS no puede hacerla).
+    if (vignetteEl) {
+      const v = active ? effectsVignette(active.effects) : 0;
+      vignetteEl.style.opacity = String(v);
     }
   }
 
@@ -171,6 +185,11 @@
         <video bind:this={videoA} playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;visibility:hidden"></video>
         <!-- svelte-ignore a11y_media_has_caption -->
         <video bind:this={videoB} playsinline preload="auto" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;visibility:hidden"></video>
+        <div
+          bind:this={vignetteEl}
+          class="pointer-events-none absolute inset-0"
+          style="opacity:0;background:radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.85) 100%)"
+        ></div>
         <div bind:this={flashEl} class="pointer-events-none absolute inset-0" style="opacity:0"></div>
         <canvas bind:this={textCanvas} width={frame.width} height={frame.height} class="pointer-events-none absolute inset-0 h-full w-full"></canvas>
       </div>
