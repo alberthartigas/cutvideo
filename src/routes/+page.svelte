@@ -6,6 +6,7 @@
   import Preview from "$lib/components/Preview.svelte";
   import Timeline from "$lib/components/Timeline.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
+  import TextInspector from "$lib/components/TextInspector.svelte";
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import {
@@ -123,6 +124,10 @@
       case "S":
         project.splitAtPlayhead();
         break;
+      case "t":
+      case "T":
+        project.addText();
+        break;
       case "Backspace":
       case "Delete":
         project.deleteSelected();
@@ -235,8 +240,12 @@
 
     <!-- Inspector -->
     <aside class="panel">
-      <div class="panel-header"><span>Inspector</span></div>
-      <MediaInfoPanel media={inspectorMedia} clip={inspectorClip} />
+      <div class="panel-header"><span>{inspectorClip?.kind === "text" ? "Texto" : "Inspector"}</span></div>
+      {#if inspectorClip?.kind === "text"}
+        <TextInspector clip={inspectorClip} />
+      {:else}
+        <MediaInfoPanel media={inspectorMedia} clip={inspectorClip} />
+      {/if}
     </aside>
   </div>
 

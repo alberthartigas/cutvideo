@@ -72,6 +72,10 @@ export function installDevMock() {
         return "/tmp/QuickCut.mp4";
       case "plugin:event|listen":
         return ++listeners;
+      case "export_overlay_begin":
+        return "/tmp/quickcut-mock-overlay";
+      case "export_write_frame":
+      case "export_overlay_end":
       case "plugin:event|unlisten":
       case "plugin:window|set_theme":
       case "plugin:opener|open_url":

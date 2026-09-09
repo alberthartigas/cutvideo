@@ -1,6 +1,9 @@
 import type { MediaInfo } from "$lib/tauri/media";
+import { DEFAULT_TEXT, TEXT_DEFAULT_DURATION, type TextData } from "$lib/text/styles";
+import type { FrameSize } from "$lib/text/layout";
 
-export type TrackKind = "video" | "audio";
+export type { FrameSize };
+export type TrackKind = "video" | "audio" | "text";
 
 export interface Clip {
   id: string;
@@ -17,6 +20,8 @@ export interface Clip {
   in: number;
   /** Punto de salida en el archivo (s). */
   out: number;
+  /** Solo en clips de texto (kind === "text"): `in` es siempre 0 y `out` la duración. */
+  text?: TextData;
 }
 
 export interface Track {
@@ -45,6 +50,8 @@ export const clipEnd = (c: Clip) => c.start + c.out - c.in;
 export const clipContains = (c: Clip, t: number) => t >= c.start && t < clipEnd(c);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+const DEFAULT_FRAME: FrameSize = { width: 1920, height: 1080, fps: 30 };
 
 function newId(): string {
   return typeof crypto.randomUUID === "function"
@@ -69,6 +76,7 @@ export function nearestSnap(value: number, points: number[], threshold: number):
 class ProjectStore {
   media = $state<MediaInfo[]>([]);
   tracks = $state<Track[]>([
+    { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
     { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
     { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
   ]);
@@ -82,8 +90,8 @@ class ProjectStore {
   canUndo = $state(false);
   canRedo = $state(false);
 
-  #past: Track[][] = [];
-  #future: Track[][] = [];
+  #past: { tracks: Track[]; json: string }[] = [];
+  #future: { tracks: Track[]; json: string }[] = [];
 
   duration = $derived(
     this.tracks.reduce((max, t) => t.clips.reduce((m, c) => Math.max(m, clipEnd(c)), max), 0),
@@ -91,7 +99,24 @@ class ProjectStore {
   clipCount = $derived(this.tracks.reduce((n, t) => n + t.clips.length, 0));
   videoTrack = $derived(this.tracks.find((t) => t.kind === "video")!);
   audioTrack = $derived(this.tracks.find((t) => t.kind === "audio")!);
+  textTrack = $derived(this.tracks.find((t) => t.kind === "text")!);
   selected = $derived.by(() => (this.selectedId ? this.findClip(this.selectedId) : null));
+  /** Tamaño del frame del proyecto: el mayor de los clips de vídeo (ya rotados); 1080p si no hay. */
+  frame = $derived.by((): FrameSize => {
+    let best: FrameSize | null = null;
+    for (const clip of this.videoTrack.clips) {
+      const v = this.mediaOf(clip)?.video;
+      if (!v || !v.width || !v.height) continue;
+      const rotated = v.rotation % 180 !== 0;
+      const size: FrameSize = {
+        width: even(rotated ? v.height : v.width),
+        height: even(rotated ? v.width : v.height),
+        fps: best?.fps ?? (v.fps || 30),
+      };
+      if (!best || size.width * size.height > best.width * best.height) best = size;
+    }
+    return best ?? DEFAULT_FRAME;
+  });
 
   // ---- Consultas ----
 
@@ -129,8 +154,16 @@ class ProjectStore {
   // ---- Historial (deshacer / rehacer) ----
   // Instantáneas completas de las pistas: simple y suficiente para proyectos de este tamaño.
 
+  #snapshot() {
+    const tracks = $state.snapshot(this.tracks) as Track[];
+    return { tracks, json: JSON.stringify(tracks) };
+  }
+
+  /** Guarda el estado actual para poder deshacer. Si no ha cambiado desde el último, no hace nada. */
   commit() {
-    this.#past.push($state.snapshot(this.tracks) as Track[]);
+    const snap = this.#snapshot();
+    if (this.#past.at(-1)?.json === snap.json) return;
+    this.#past.push(snap);
     if (this.#past.length > HISTORY_MAX) this.#past.shift();
     this.#future = [];
     this.#syncHistory();
@@ -139,16 +172,16 @@ class ProjectStore {
   undo() {
     const prev = this.#past.pop();
     if (!prev) return;
-    this.#future.push($state.snapshot(this.tracks) as Track[]);
-    this.tracks = prev;
+    this.#future.push(this.#snapshot());
+    this.tracks = prev.tracks;
     this.#syncHistory();
   }
 
   redo() {
     const next = this.#future.pop();
     if (!next) return;
-    this.#past.push($state.snapshot(this.tracks) as Track[]);
-    this.tracks = next;
+    this.#past.push(this.#snapshot());
+    this.tracks = next.tracks;
     this.#syncHistory();
   }
 
@@ -199,6 +232,37 @@ class ProjectStore {
     return clip;
   }
 
+  /** Añade un clip de texto (3 s) en `at` (por defecto el playhead) o en el hueco libre más cercano. */
+  addText(at = this.playhead): Clip {
+    const track = this.textTrack;
+    const clip: Clip = {
+      id: newId(),
+      mediaPath: "",
+      name: DEFAULT_TEXT.text,
+      kind: "text",
+      sourceDuration: Number.POSITIVE_INFINITY,
+      fps: 30,
+      start: 0,
+      in: 0,
+      out: TEXT_DEFAULT_DURATION,
+      text: { ...DEFAULT_TEXT },
+    };
+    this.commit();
+    clip.start = this.#freeStart(track, TEXT_DEFAULT_DURATION, at);
+    track.clips.push(clip);
+    this.#sort(track);
+    this.selectedId = clip.id;
+    return clip;
+  }
+
+  /** Cambia propiedades de un texto. Llamar a `commit()` antes del primer cambio de una edición. */
+  updateText(id: string, patch: Partial<TextData>) {
+    const ref = this.findClip(id);
+    if (!ref?.clip.text) return;
+    Object.assign(ref.clip.text, patch);
+    if (patch.text !== undefined) ref.clip.name = patch.text.split("\n")[0].trim() || "Texto";
+  }
+
   /** Mueve un clip de una pista libre a `start`, evitando solapar otros clips. */
   moveClip(id: string, start: number) {
     const ref = this.findClip(id);
@@ -238,11 +302,18 @@ class ProjectStore {
     const ref = this.findClip(id);
     if (!ref) return;
     const { track, clip, index } = ref;
+    const prev = track.clips[index - 1];
+    const floor = !track.magnetic && prev ? clipEnd(prev) : 0;
+    if (clip.kind === "text") {
+      // Los textos no tienen "entrada": mover el borde izquierdo acorta la duración por delante.
+      const newStart = clamp(clip.start + (newIn - clip.in), floor, clipEnd(clip) - MIN_CLIP);
+      clip.out -= newStart - clip.start;
+      clip.start = newStart;
+      return;
+    }
     let min = 0;
     if (!track.magnetic) {
       // El borde no puede invadir el clip anterior: start' = start + (in' - in) ≥ fin del anterior.
-      const prev = track.clips[index - 1];
-      const floor = prev ? clipEnd(prev) : 0;
       min = Math.max(0, clip.in + floor - clip.start);
     }
     newIn = clamp(newIn, min, clip.out - MIN_CLIP);
@@ -284,7 +355,10 @@ class ProjectStore {
     let lastRight: Clip | null = null;
     for (const { track, clip, index } of targets) {
       const offset = t - clip.start;
-      const right: Clip = { ...clip, id: newId(), in: clip.in + offset, start: t };
+      const right: Clip =
+        clip.kind === "text"
+          ? { ...clip, id: newId(), text: { ...clip.text! }, in: 0, out: clip.out - offset, start: t }
+          : { ...clip, id: newId(), in: clip.in + offset, start: t };
       clip.out = clip.in + offset;
       track.clips.splice(index + 1, 0, right);
       lastRight = right;

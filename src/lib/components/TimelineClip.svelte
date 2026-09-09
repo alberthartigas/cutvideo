@@ -136,6 +136,10 @@
     --clip-bg: color-mix(in srgb, #10b981 22%, var(--panel));
     --clip-border: color-mix(in srgb, #10b981 55%, transparent);
   }
+  .clip.text {
+    --clip-bg: color-mix(in srgb, #f59e0b 24%, var(--panel));
+    --clip-border: color-mix(in srgb, #f59e0b 55%, transparent);
+  }
   .clip.selected {
     box-shadow: 0 0 0 2px var(--accent);
   }
@@ -167,13 +171,15 @@
     font-size: 10px;
     color: var(--muted);
   }
-  /* La pista de audio es más baja: nombre y duración en una sola línea. */
-  .clip.audio .body {
+  /* Las pistas de audio y texto son más bajas: nombre y duración en una sola línea. */
+  .clip.audio .body,
+  .clip.text .body {
     flex-direction: row;
     align-items: center;
     gap: 8px;
   }
-  .clip.audio .name {
+  .clip.audio .name,
+  .clip.text .name {
     min-width: 0;
   }
   .handle {

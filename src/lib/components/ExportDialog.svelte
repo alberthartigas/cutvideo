@@ -5,56 +5,76 @@
   import {
     buildExportPlan,
     cancelExport,
+    endTextOverlays,
     exportVideo,
     onExportProgress,
     originalSize,
     pickOutputPath,
+    renderTextOverlays,
     revealInFolder,
     targetSize,
     type ExportEncoder,
-    type ExportProgress,
     type ExportResult,
   } from "$lib/tauri/export";
   import { basename, formatDuration } from "$lib/format";
 
   type Phase =
     | { kind: "idle" }
-    | { kind: "running"; progress: ExportProgress; startedAt: number }
+    | { kind: "running"; stage: "text" | "ffmpeg"; percent: number; speed: number | null; startedAt: number }
     | { kind: "done"; result: ExportResult }
     | { kind: "error"; message: string };
 
   let phase = $state<Phase>({ kind: "idle" });
   let shortSide = $state<number | null>(null);
   let encoder = $state<ExportEncoder>("auto");
+  let cancelled = false;
 
   const PRESETS = [2160, 1440, 1080, 720, 480];
   let orig = $derived(originalSize());
   let presets = $derived(orig ? PRESETS.filter((p) => p < Math.min(orig.width, orig.height)) : []);
   let size = $derived(orig ? targetSize(orig, shortSide) : null);
   let running = $derived(phase.kind === "running");
+  let textCount = $derived(project.textTrack.clips.length);
 
   let remaining = $derived.by(() => {
-    if (phase.kind !== "running" || phase.progress.percent < 2) return null;
+    if (phase.kind !== "running" || phase.stage !== "ffmpeg" || phase.percent < 2) return null;
     const elapsed = (Date.now() - phase.startedAt) / 1000;
-    return (elapsed / phase.progress.percent) * (100 - phase.progress.percent);
+    return (elapsed / phase.percent) * (100 - phase.percent);
   });
 
   async function start() {
     if (!size) return;
+    const target = size;
     const output = await pickOutputPath("QuickCut.mp4");
     if (!output) return;
-    phase = { kind: "running", progress: { percent: 0, outTime: 0, speed: null }, startedAt: Date.now() };
-    const unlisten = await onExportProgress((progress) => {
-      if (phase.kind === "running") phase = { ...phase, progress };
-    });
+    cancelled = false;
+    phase = { kind: "running", stage: "text", percent: 0, speed: null, startedAt: Date.now() };
+    let unlisten: (() => void) | null = null;
     try {
-      const result = await exportVideo(buildExportPlan(output, size, encoder));
+      const overlays = await renderTextOverlays(
+        target,
+        (f) => {
+          if (phase.kind === "running") phase = { ...phase, stage: "text", percent: f * 100 };
+        },
+        () => cancelled,
+      );
+      phase = { kind: "running", stage: "ffmpeg", percent: 0, speed: null, startedAt: Date.now() };
+      unlisten = await onExportProgress((p) => {
+        if (phase.kind === "running") phase = { ...phase, stage: "ffmpeg", percent: p.percent, speed: p.speed };
+      });
+      const result = await exportVideo(buildExportPlan(output, target, encoder, overlays));
       phase = { kind: "done", result };
     } catch (e) {
-      phase = { kind: "error", message: String(e) };
+      phase = cancelled ? { kind: "idle" } : { kind: "error", message: String(e) };
     } finally {
-      unlisten();
+      unlisten?.();
+      endTextOverlays().catch(() => {});
     }
+  }
+
+  function cancel() {
+    cancelled = true;
+    if (phase.kind === "running" && phase.stage === "ffmpeg") cancelExport();
   }
 
   function close() {
@@ -102,7 +122,7 @@
           <p class="text-xs text-muted">
             {size.width}×{size.height} · {Math.round(size.fps * 100) / 100} fps · H.264 + AAC ·
             {formatDuration(project.duration)} · {project.videoTrack.clips.length}
-            {project.videoTrack.clips.length === 1 ? "clip" : "clips"}
+            {project.videoTrack.clips.length === 1 ? "clip" : "clips"}{textCount ? ` · ${textCount} ${textCount === 1 ? "texto" : "textos"}` : ""}
           </p>
           <div class="flex justify-end gap-2">
             <button class="btn" onclick={close}>Cancelar</button>
@@ -112,17 +132,17 @@
       {:else if phase.kind === "running"}
         <div class="flex items-center gap-2">
           <LoaderCircle size={16} class="animate-spin text-accent" />
-          <span>Exportando… {phase.progress.percent.toFixed(0)}%</span>
+          <span>{phase.stage === "text" ? "Renderizando textos…" : "Codificando…"} {phase.percent.toFixed(0)}%</span>
           <span class="ml-auto text-xs text-muted">
-            {#if phase.progress.speed}{phase.progress.speed.toFixed(1)}× ·{/if}
+            {#if phase.speed}{phase.speed.toFixed(1)}× ·{/if}
             {#if remaining !== null}quedan {formatDuration(remaining).slice(0, -3)}{/if}
           </span>
         </div>
         <div class="h-2 overflow-hidden rounded-full bg-panel-2">
-          <div class="h-full bg-accent transition-[width] duration-200" style="width:{phase.progress.percent}%"></div>
+          <div class="h-full bg-accent transition-[width] duration-200" style="width:{phase.percent}%"></div>
         </div>
         <div class="flex justify-end">
-          <button class="btn" onclick={() => cancelExport()}>Cancelar exportación</button>
+          <button class="btn" onclick={cancel}>Cancelar exportación</button>
         </div>
       {:else if phase.kind === "done"}
         <div class="flex items-start gap-2">

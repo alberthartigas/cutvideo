@@ -7,6 +7,7 @@
     Redo2,
     Scissors,
     Trash2,
+    Type,
     Undo2,
     ZoomIn,
     ZoomOut,
@@ -16,8 +17,8 @@
   import TimelineClip from "./TimelineClip.svelte";
 
   const RULER_H = 24;
-  const TRACK_H: Record<TrackKind, number> = { video: 56, audio: 40 };
-  const trackIcons = { video: Film, audio: Music } as const;
+  const TRACK_H: Record<TrackKind, number> = { text: 36, video: 56, audio: 40 };
+  const trackIcons = { text: Type, video: Film, audio: Music } as const;
 
   /**
    * Los clips se pintan en orden estable (por id), no por posición: si el DOM se
@@ -168,6 +169,11 @@
       <button class="tool" title="Eliminar clip (⌫)" disabled={!project.selected} onclick={() => project.deleteSelected()}>
         <Trash2 size={14} />
         <span>Eliminar</span>
+      </button>
+      <span class="mx-1 h-4 w-px bg-border"></span>
+      <button class="tool" title="Añadir texto en el playhead (T)" onclick={() => project.addText()}>
+        <Type size={14} />
+        <span>Texto</span>
       </button>
     </div>
     <div class="flex items-center gap-1">

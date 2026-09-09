@@ -2,18 +2,31 @@
 //! concatena, mezcla la pista de audio y codifica (por hardware si se puede).
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-/// Proceso ffmpeg en curso (para poder cancelarlo).
+/// Proceso ffmpeg en curso (para poder cancelarlo) y carpeta temporal de las capas de texto.
 #[derive(Default)]
 pub struct ExportState {
     child: Mutex<Option<CommandChild>>,
     cancelled: AtomicBool,
+    overlay_dir: Mutex<Option<PathBuf>>,
+}
+
+/// Secuencia PNG con alfa (textos animados) que se superpone al vídeo desde `start`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportOverlay {
+    /// Patrón de archivos tipo `/tmp/.../0/%05d.png`.
+    pub pattern: String,
+    pub fps: f64,
+    pub start: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,6 +60,8 @@ pub struct ExportPlan {
     pub audio: Vec<ExportClip>,
     /// "auto" (hardware si lo hay) o "x264".
     pub encoder: String,
+    #[serde(default)]
+    pub overlays: Vec<ExportOverlay>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,6 +136,15 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
             c.path.clone(),
         ]);
     }
+    // Capas de texto: secuencias PNG con alfa.
+    for ov in &plan.overlays {
+        args.extend([
+            "-framerate".into(),
+            format!("{:.3}", ov.fps),
+            "-i".into(),
+            ov.pattern.clone(),
+        ]);
+    }
 
     let mut filters: Vec<String> = Vec::new();
     for (i, c) in plan.video.iter().enumerate() {
@@ -149,12 +173,22 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     // Si la pista de audio dura más que el vídeo, rellenamos con negro.
     if total > video_len + 0.01 {
         filters.push(format!(
-            "[vcat]tpad=stop_duration={}:color=black[vout]",
+            "[vcat]tpad=stop_duration={}:color=black[vpad]",
             sec(total - video_len)
         ));
     } else {
-        filters.push("[vcat]null[vout]".into());
+        filters.push("[vcat]null[vpad]".into());
     }
+    // Superponemos cada capa de texto desplazada a su instante; antes y después, pasa el vídeo tal cual.
+    let mut last = String::from("vpad");
+    let first_overlay_input = plan.video.len() + plan.audio.len();
+    for (k, ov) in plan.overlays.iter().enumerate() {
+        let idx = first_overlay_input + k;
+        filters.push(format!("[{idx}:v]setpts=PTS-STARTPTS+{}/TB[ov{k}]", sec(ov.start)));
+        filters.push(format!("[{last}][ov{k}]overlay=eof_action=pass:format=auto[vo{k}]"));
+        last = format!("vo{k}");
+    }
+    filters.push(format!("[{last}]format=yuv420p[vout]"));
 
     if plan.audio.is_empty() {
         filters.push("[acat]anull[aout]".into());
@@ -340,6 +374,59 @@ pub async fn export_video(
     }
 }
 
+fn header_u32(request: &Request<'_>, name: &str) -> Result<u32, String> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| format!("Falta la cabecera {name}"))
+}
+
+/// Crea la carpeta temporal donde el frontend irá dejando los frames de texto.
+#[tauri::command]
+pub fn export_overlay_begin(state: State<'_, ExportState>) -> Result<String, String> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("quickcut-overlay-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("No se pudo crear la carpeta temporal: {e}"))?;
+    let mut slot = state.overlay_dir.lock().unwrap();
+    if let Some(old) = slot.replace(dir.clone()) {
+        let _ = std::fs::remove_dir_all(old);
+    }
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// Recibe un frame PNG (cuerpo binario) y lo guarda como `<dir>/<segmento>/<frame>.png`.
+#[tauri::command]
+pub fn export_write_frame(state: State<'_, ExportState>, request: Request<'_>) -> Result<(), String> {
+    let dir = state
+        .overlay_dir
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No hay ninguna exportación de textos en curso")?;
+    let segment = header_u32(&request, "x-segment")?;
+    let frame = header_u32(&request, "x-frame")?;
+    let InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Se esperaba un cuerpo binario".into());
+    };
+    let seg_dir = dir.join(segment.to_string());
+    std::fs::create_dir_all(&seg_dir).map_err(|e| e.to_string())?;
+    std::fs::write(seg_dir.join(format!("{frame:05}.png")), bytes).map_err(|e| e.to_string())
+}
+
+/// Borra la carpeta temporal de frames de texto.
+#[tauri::command]
+pub fn export_overlay_end(state: State<'_, ExportState>) -> Result<(), String> {
+    if let Some(dir) = state.overlay_dir.lock().unwrap().take() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_export(state: State<'_, ExportState>) -> Result<(), String> {
     state.cancelled.store(true, Ordering::SeqCst);
@@ -367,6 +454,17 @@ mod tests {
         };
         let p = |name: &str| format!("{dir}/{name}");
         let output = p("out-test.mp4");
+        // Capa de texto simulada: 15 PNG semitransparentes (0,5 s a 30 fps) que empiezan en 1 s.
+        let overlay_dir = std::path::PathBuf::from(&dir).join("overlay-test");
+        let _ = std::fs::remove_dir_all(&overlay_dir);
+        std::fs::create_dir_all(&overlay_dir).unwrap();
+        let pattern = overlay_dir.join("%05d.png").to_string_lossy().into_owned();
+        let gen = std::process::Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red@0.5:s=1280x720:r=30:d=0.5,format=rgba", &pattern])
+            .status()
+            .expect("generar PNGs");
+        assert!(gen.success(), "no se pudieron generar los PNG de prueba");
+
         let plan = ExportPlan {
             output: output.clone(),
             width: 1280,
@@ -379,6 +477,7 @@ mod tests {
             ],
             audio: vec![clip(&p("music.mp3"), 0.0, 5.0, 1.5, true)],
             encoder: "x264".into(),
+            overlays: vec![ExportOverlay { pattern, fps: 30.0, start: 1.0 }],
         };
         let expected = total_duration(&plan);
         assert!((expected - 6.5).abs() < 1e-9, "duración total {expected}");
