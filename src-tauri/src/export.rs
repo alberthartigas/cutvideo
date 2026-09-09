@@ -480,7 +480,7 @@ pub fn export_overlay_begin(state: State<'_, ExportState>) -> Result<String, Str
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("quickcut-overlay-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("cutvideo-overlay-{}-{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("No se pudo crear la carpeta temporal: {e}"))?;
     let mut slot = state.overlay_dir.lock().unwrap();
     if let Some(old) = slot.replace(dir.clone()) {
@@ -547,11 +547,11 @@ mod tests {
     }
 
     /// Prueba de humo del grafo de filtros con el ffmpeg del sistema. Se activa con
-    /// QUICKCUT_FFMPEG=/ruta/ffmpeg y QUICKCUT_TEST_DIR=<dir con clipA.mp4, clipB.mp4, mute.mp4, music.mp3>.
+    /// CUTVIDEO_FFMPEG=/ruta/ffmpeg y CUTVIDEO_TEST_DIR=<dir con clipA.mp4, clipB.mp4, mute.mp4, music.mp3>.
     #[test]
     fn filter_graph_runs_on_real_ffmpeg() {
-        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("QUICKCUT_FFMPEG"), std::env::var("QUICKCUT_TEST_DIR")) else {
-            eprintln!("saltada: define QUICKCUT_FFMPEG y QUICKCUT_TEST_DIR");
+        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("CUTVIDEO_FFMPEG"), std::env::var("CUTVIDEO_TEST_DIR")) else {
+            eprintln!("saltada: define CUTVIDEO_FFMPEG y CUTVIDEO_TEST_DIR");
             return;
         };
         let p = |name: &str| format!("{dir}/{name}");

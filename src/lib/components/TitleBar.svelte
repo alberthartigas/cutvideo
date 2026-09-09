@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Download, Monitor, Moon, Settings, Sun } from "@lucide/svelte";
+  import Logo from "./Logo.svelte";
   import { THEME_MODES, theme } from "$lib/theme.svelte";
   import { project } from "$lib/project.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -15,8 +16,8 @@
   class="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-panel pr-3 {isMac ? 'pl-20' : 'pl-4'}"
 >
   <!-- pointer-events-none: el mousedown cae en el div con drag-region y la ventana se puede arrastrar -->
-  <div data-tauri-drag-region class="flex items-baseline gap-2">
-    <span class="pointer-events-none font-semibold tracking-tight">QuickCut</span>
+  <div data-tauri-drag-region class="flex items-center gap-2">
+    <Logo class="pointer-events-none h-[18px]" />
     <span class="pointer-events-none text-[11px] text-muted">0.1</span>
   </div>
 

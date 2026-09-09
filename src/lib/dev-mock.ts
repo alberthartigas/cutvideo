@@ -69,11 +69,11 @@ export function installDevMock() {
       case "plugin:dialog|open":
         return FILES.map((f) => f.path);
       case "plugin:dialog|save":
-        return "/tmp/QuickCut.mp4";
+        return "/tmp/CutVideo.mp4";
       case "plugin:event|listen":
         return ++listeners;
       case "export_overlay_begin":
-        return "/tmp/quickcut-mock-overlay";
+        return "/tmp/cutvideo-mock-overlay";
       case "export_write_frame":
       case "export_overlay_end":
       case "plugin:event|unlisten":
@@ -91,7 +91,7 @@ export function installDevMock() {
       case "transcribe": {
         await sleep(800);
         const text =
-          "Hola, esto es una prueba de subtítulos automáticos generados con QuickCut. Cada palabra lleva su tiempo y el karaoke va sincronizado. Funciona de maravilla, ¿verdad?";
+          "Hola, esto es una prueba de subtítulos automáticos generados con CutVideo. Cada palabra lleva su tiempo y el karaoke va sincronizado. Funciona de maravilla, ¿verdad?";
         let t = 0.3;
         const words = text.split(" ").map((word) => {
           const start = t;
@@ -161,5 +161,5 @@ export function installDevMock() {
         throw `Modo navegador: comando no simulado: ${cmd}`;
     }
   });
-  console.info("[QuickCut] API de Tauri simulada (modo navegador)");
+  console.info("[CutVideo] API de Tauri simulada (modo navegador)");
 }

@@ -15,7 +15,7 @@ use std::path::Path;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
-const USER_AGENT: &str = "QuickCut/0.1 (editor de vídeo de escritorio)";
+const USER_AGENT: &str = "CutVideo/0.1 (editor de vídeo de escritorio)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

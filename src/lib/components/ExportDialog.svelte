@@ -45,7 +45,7 @@
   async function start() {
     if (!size) return;
     const target = size;
-    const output = await pickOutputPath("QuickCut.mp4");
+    const output = await pickOutputPath("CutVideo.mp4");
     if (!output) return;
     cancelled = false;
     phase = { kind: "running", stage: "text", percent: 0, speed: null, startedAt: Date.now() };

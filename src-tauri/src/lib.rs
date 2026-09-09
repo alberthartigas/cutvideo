@@ -26,7 +26,7 @@ async fn probe_media(app: tauri::AppHandle, path: String) -> Result<media::Media
     Ok(info)
 }
 
-/// Rutas pasadas por línea de comandos al arrancar (`quickcut video.mp4`,
+/// Rutas pasadas por línea de comandos al arrancar (`cutvideo video.mp4`,
 /// o "Abrir con…" en Windows). Solo devuelve las que existen como archivo.
 #[tauri::command]
 fn startup_files() -> Vec<String> {

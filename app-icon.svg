@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Icono de CutVideo, trazado sobre las medidas del logotipo original:
+       la "C" cortada en tres piezas (cuerpo + dos trocitos) y el play. -->
+  <rect width="1024" height="1024" rx="229" fill="#ffffff"/>
+  <g fill="#0d1136">
+    <path d="M753.2 831.1A400.0 400.0 0 1 1 735.6 180.3L652.3 303.9A250.9 250.9 0 1 0 663.3 712.2Z"/>
+    <path d="M779.7 214.8A400.0 400.0 0 0 1 839.1 281.8L717.2 367.6A250.9 250.9 0 0 0 679.9 325.6Z"/>
+    <path d="M841.9 738.1A400.0 400.0 0 0 1 790.0 799.6L686.4 692.4A250.9 250.9 0 0 0 719.0 653.9Z"/>
+  </g>
+  <path fill="#7749e4" stroke="#7749e4" stroke-width="14" stroke-linejoin="round" d="M430.0 390.3L648.6 521.9L430.0 658.6Z"/>
+</svg>

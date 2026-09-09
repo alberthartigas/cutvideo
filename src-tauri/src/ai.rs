@@ -136,7 +136,7 @@ pub async fn ai_edit_plan(request: EditPlanRequest) -> Result<EditPlan, String> 
     };
 
     let prompt = format!(
-        "Eres el asistente de edición de QuickCut, un editor de vídeo. Propón un plan de edición para este proyecto.\n\n\
+        "Eres el asistente de edición de CutVideo, un editor de vídeo. Propón un plan de edición para este proyecto.\n\n\
          Duración: {:.1} s\nClips: {}\nTempo de la música: {}\nEstilo pedido: {}\nIdioma de los textos: {}\n\n\
          Transcripción del audio:\n{}\n\n\
          Devuelve el plan llamando a la herramienta `propose_edit`. Los textos deben estar en el idioma indicado, \

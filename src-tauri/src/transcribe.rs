@@ -179,7 +179,7 @@ pub async fn transcribe(app: AppHandle, request: TranscribeRequest) -> Result<Tr
 
     // 1) Audio de la pista principal.
     progress(&app, "extract", "Extrayendo el audio…");
-    let audio_path = std::env::temp_dir().join(format!("quickcut-transcribe-{}.mp3", std::process::id()));
+    let audio_path = std::env::temp_dir().join(format!("cutvideo-transcribe-{}.mp3", std::process::id()));
     let audio = audio_path.to_string_lossy().into_owned();
     let output = app
         .shell()
@@ -275,8 +275,8 @@ mod tests {
     /// Extrae audio real con el ffmpeg del sistema (mismas variables que el test de export).
     #[test]
     fn audio_extraction_runs_on_real_ffmpeg() {
-        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("QUICKCUT_FFMPEG"), std::env::var("QUICKCUT_TEST_DIR")) else {
-            eprintln!("saltada: define QUICKCUT_FFMPEG y QUICKCUT_TEST_DIR");
+        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("CUTVIDEO_FFMPEG"), std::env::var("CUTVIDEO_TEST_DIR")) else {
+            eprintln!("saltada: define CUTVIDEO_FFMPEG y CUTVIDEO_TEST_DIR");
             return;
         };
         let clip = |name: &str, in_sec: f64, out: f64, start: f64, has_audio: bool| ExportClip {

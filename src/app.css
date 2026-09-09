@@ -5,27 +5,35 @@
 
 /* Tokens semánticos. Cambian entre claro y oscuro; los componentes solo usan estos. */
 :root {
-  --bg: #ececef;
+  /* Paleta de CutVideo: navy #1b1b3e y violeta #7c4df0 del logotipo. */
+  --brand-navy: #0d1136;
+  --brand-violet: #7749e4;
+
+  --bg: #eceaf3;
   --panel: #ffffff;
-  --panel-2: #f5f5f7;
-  --border: #e2e2e6;
-  --text: #17171c;
-  --muted: #71717a;
-  --accent: #6b5cf6;
+  --panel-2: #f5f4fa;
+  --border: #e0dee9;
+  --text: #0d1136;
+  --muted: #6f6d87;
+  --accent: #7749e4;
   --accent-fg: #ffffff;
-  --track: #f0f0f3;
+  --track: #f1eff7;
   color-scheme: light;
 }
 .dark {
-  --bg: #0d0d10;
-  --panel: #161619;
-  --panel-2: #1d1d21;
-  --border: #29292f;
-  --text: #f2f2f4;
-  --muted: #8a8a94;
-  --accent: #8b7cff;
-  --accent-fg: #0d0d10;
-  --track: #121215;
+  --brand-navy: #0d1136;
+  --brand-violet: #7749e4;
+
+  --bg: #0a0d26;
+  --panel: #0d1136;
+  --panel-2: #161b45;
+  --border: #232a5c;
+  --text: #f0eff8;
+  --muted: #8f8dad;
+  /* Violeta algo más claro: el de marca no contrasta bien sobre fondo oscuro. */
+  --accent: #9270ff;
+  --accent-fg: #0a0d26;
+  --track: #0b0f2e;
   color-scheme: dark;
 }
 
@@ -40,6 +48,8 @@
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-track: var(--track);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-violet: var(--brand-violet);
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 

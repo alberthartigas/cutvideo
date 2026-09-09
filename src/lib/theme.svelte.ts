@@ -8,13 +8,15 @@ export const THEME_MODES: { value: ThemeMode; label: string }[] = [
   { value: "dark", label: "Oscuro" },
 ];
 
-const STORAGE_KEY = "quickcut.theme";
+const STORAGE_KEY = "cutvideo.theme";
+/** Clave anterior (la app se llamaba QuickCut): se lee si aún no hay preferencia nueva. */
+const LEGACY_KEY = "quickcut.theme";
 
 const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function readStored(): ThemeMode {
   try {
-    const v = localStorage.getItem(STORAGE_KEY);
+    const v = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
     if (v === "light" || v === "dark" || v === "system") return v;
   } catch {
     /* sin localStorage (p. ej. vista previa) */

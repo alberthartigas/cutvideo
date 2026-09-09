@@ -9,8 +9,10 @@
 use keyring::{Entry, Error as KeyringError};
 use serde::Serialize;
 
-/// Nombre del servicio en el llavero. Todas las entradas de QuickCut cuelgan de aquí.
-const SERVICE: &str = "com.alberthartigas.quickcut";
+/// Nombre del servicio en el llavero. Todas las entradas de CutVideo cuelgan de aquí.
+const SERVICE: &str = "com.alberthartigas.cutvideo";
+/// Nombre anterior (la app se llamaba QuickCut): se migra al leer, una sola vez.
+const LEGACY_SERVICE: &str = "com.alberthartigas.quickcut";
 
 /// Tipo de secreto. Cada uno vive en su propio espacio de nombres, así una
 /// futura suscripción (token de sesión, licencia) no se mezcla con las claves
@@ -19,7 +21,7 @@ const SERVICE: &str = "com.alberthartigas.quickcut";
 pub enum SecretKind {
     /// Clave de un proveedor externo (Groq, OpenAI…). `id` = proveedor.
     ApiKey,
-    /// Licencia o clave de activación de QuickCut. `id` = producto/plan.
+    /// Licencia o clave de activación de CutVideo. `id` = producto/plan.
     License,
     /// Token de sesión de la cuenta del usuario. `id` = servicio.
     Session,
@@ -72,6 +74,12 @@ fn entry(kind: SecretKind, id: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, &format!("{}:{}", kind.prefix(), id)).map_err(describe)
 }
 
+/// Entrada con el nombre de servicio antiguo, para no perder las claves ya guardadas.
+fn legacy_entry(kind: SecretKind, id: &str) -> Result<Entry, String> {
+    validate_id(id)?;
+    Entry::new(LEGACY_SERVICE, &format!("{}:{}", kind.prefix(), id)).map_err(describe)
+}
+
 /// Mensaje legible para el usuario; nunca incluye el valor del secreto.
 fn describe(e: KeyringError) -> String {
     match e {
@@ -104,9 +112,22 @@ pub fn set(kind: SecretKind, id: &str, value: &str) -> Result<(), String> {
 pub fn get(kind: SecretKind, id: &str) -> Result<Option<String>, String> {
     match entry(kind, id)?.get_password() {
         Ok(v) => Ok(Some(v)),
-        Err(KeyringError::NoEntry) => Ok(None),
+        Err(KeyringError::NoEntry) => migrate_legacy(kind, id),
         Err(e) => Err(describe(e)),
     }
+}
+
+/// Si el secreto está guardado con el nombre antiguo, lo copia al nuevo y lo borra.
+fn migrate_legacy(kind: SecretKind, id: &str) -> Result<Option<String>, String> {
+    let old = legacy_entry(kind, id)?;
+    let value = match old.get_password() {
+        Ok(v) => v,
+        Err(KeyringError::NoEntry) => return Ok(None),
+        Err(_) => return Ok(None),
+    };
+    entry(kind, id)?.set_password(&value).map_err(describe)?;
+    let _ = old.delete_credential();
+    Ok(Some(value))
 }
 
 pub fn delete(kind: SecretKind, id: &str) -> Result<(), String> {
