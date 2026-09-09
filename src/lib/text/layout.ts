@@ -49,8 +49,9 @@ export function layoutText(ctx: Ctx, data: TextData, frame: { width: number; hei
   const lineHeight = fontPx * 1.2;
 
   // Ajuste de línea por palabras; "\n" fuerza salto.
+  const source = data.uppercase ? data.text.toLocaleUpperCase("es") : data.text;
   const lines: string[][] = [];
-  for (const para of data.text.split("\n")) {
+  for (const para of source.split("\n")) {
     const words = para.split(/\s+/).filter(Boolean);
     let line: string[] = [];
     let width = 0;

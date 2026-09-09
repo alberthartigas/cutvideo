@@ -58,6 +58,21 @@ export const BASE_STATE: UnitState = {
 /** Progreso 0→1 de una ventana de `len` segundos que empieza en `start` (para animar palabras al pronunciarse). */
 const window01 = (time: number, start: number, len: number) => clamp01((time - start) / len);
 
+/**
+ * Cuándo empieza y acaba la palabra `u.i`. Con la transcripción usa sus tiempos
+ * reales; sin ella, reparte el clip a partes iguales (miniaturas y ejemplos).
+ */
+function wordSpan(ctx: AnimContext, u: UnitInfo, p: number): [number, number] {
+  const wt = ctx.wordTimes?.[u.i];
+  if (wt) {
+    const next = ctx.wordTimes?.[u.i + 1];
+    return [wt[0], next ? next[0] : wt[1] + 0.25];
+  }
+  const step = ctx.duration / Math.max(1, u.n);
+  void p;
+  return [u.i * step, (u.i + 1) * step];
+}
+
 export const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 export const easeOut = (x: number) => 1 - Math.pow(1 - clamp01(x), 3);
 export const easeInOut = (x: number) => {
@@ -289,6 +304,53 @@ export const TEXT_ANIMATIONS: TextAnimation[] = [
       const start = wt ? wt[0] : (u.i / u.n) * ctx.duration;
       const l = window01(ctx.time, start, 0.32);
       return { dy: -Math.sin(l * Math.PI) * 0.25, highlight: ctx.time >= start ? 1 : 0 };
+    },
+  },
+  {
+    id: "wordgrow",
+    name: "Palabra que crece",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const [start, end] = wordSpan(ctx, u, p);
+      if (ctx.time < start) return { scale: 0.94, opacity: 0.5 };
+      if (ctx.time >= end) return { scale: 1, opacity: 0.95 };
+      // Golpe al entrar y se queda algo más grande mientras se pronuncia.
+      const hit = 1 - easeOut(window01(ctx.time, start, 0.16));
+      return { scale: 1.14 + 0.2 * hit, highlight: 1, opacity: 1 };
+    },
+  },
+  {
+    id: "wordpunch",
+    name: "Golpe por palabra",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const [start, end] = wordSpan(ctx, u, p);
+      const activa = ctx.time >= start && ctx.time < end;
+      if (!activa) return { opacity: ctx.time < start ? 0.55 : 0.9 };
+      const l = window01(ctx.time, start, 0.22);
+      // Sacudida corta que se apaga: llama la atención sin marear.
+      const amp = (1 - l) * 0.06;
+      return {
+        scale: 1 + 0.25 * (1 - easeOut(l)),
+        dx: (noise(u.i, Math.floor(ctx.time * 30)) - 0.5) * amp,
+        dy: (noise(u.i + 7, Math.floor(ctx.time * 30)) - 0.5) * amp,
+        highlight: 1,
+      };
+    },
+  },
+  {
+    id: "wordrise",
+    name: "Palabra que sube",
+    kind: "emphasis",
+    unit: "word",
+    state: (p, u, ctx) => {
+      const [start, end] = wordSpan(ctx, u, p);
+      if (ctx.time < start) return { opacity: 0.45, dy: 0.06 };
+      if (ctx.time >= end) return { opacity: 0.9 };
+      const l = easeOut(window01(ctx.time, start, 0.2));
+      return { dy: -0.12 * l, scale: 1 + 0.08 * l, highlight: 1 };
     },
   },
   {

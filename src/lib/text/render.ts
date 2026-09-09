@@ -105,6 +105,18 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
     ctx.fill();
   }
 
+  // Extremos de cada palabra: sirven de pivote para escalarlas y para las cajas.
+  const wordBounds = new Map<number, { x0: number; x1: number }>();
+  for (const c of layout.chars) {
+    const b = wordBounds.get(c.word);
+    if (b) {
+      b.x0 = Math.min(b.x0, c.x);
+      b.x1 = Math.max(b.x1, c.x + c.w);
+    } else {
+      wordBounds.set(c.word, { x0: c.x, x1: c.x + c.w });
+    }
+  }
+
   // Cajas detrás de la palabra actual (estilo "palabra resaltada").
   const wordBoxes = new Map<number, { x0: number; x1: number; y: number; alpha: number }>();
   layout.chars.forEach((c, k) => {
@@ -132,8 +144,10 @@ export function drawTextClip(ctx: Ctx, data: TextData, u: number, duration: numb
   layout.chars.forEach((c, k) => {
     const s = states[k];
     if (s.opacity <= 0.001) return;
-    // Pivote en el centro visual de la letra para que escala y giro sean naturales.
-    const px = c.x + c.w / 2;
+    // El pivote es el centro de la PALABRA, no el de la letra: así una palabra
+    // que crece se abre desde su centro en vez de descuadrar las letras.
+    const word = wordBounds.get(c.word);
+    const px = word ? (word.x0 + word.x1) / 2 : c.x + c.w / 2;
     const py = c.y - layout.ascent * 0.35;
     ctx.save();
     ctx.globalAlpha = s.opacity;

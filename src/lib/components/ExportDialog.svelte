@@ -12,6 +12,7 @@
     pickOutputPath,
     renderTextOverlays,
     revealInFolder,
+    RESOLUTIONS,
     targetSize,
     type ExportEncoder,
     type ExportResult,
@@ -29,10 +30,11 @@
   let encoder = $state<ExportEncoder>("auto");
   let cancelled = false;
 
-  const PRESETS = [2160, 1440, 1080, 720, 480];
   let orig = $derived(originalSize());
-  let presets = $derived(orig ? PRESETS.filter((p) => p < Math.min(orig.width, orig.height)) : []);
+  let origShort = $derived(orig ? Math.min(orig.width, orig.height) : 0);
   let size = $derived(orig ? targetSize(orig, shortSide) : null);
+  /** Subir de resolución no inventa detalle: conviene decirlo. */
+  let escalando = $derived(!!shortSide && shortSide > origShort);
   let running = $derived(phase.kind === "running");
   let textCount = $derived(project.textClips.length);
 
@@ -104,14 +106,22 @@
         {:else}
           <label class="flex items-center justify-between gap-3">
             <span>Resolución</span>
-            <select bind:value={shortSide} class="field w-48">
+            <select bind:value={shortSide} class="field w-56">
               <option value={null}>Original · {orig.width}×{orig.height}</option>
-              {#each presets as p (p)}
-                {@const s = targetSize(orig, p)}
-                <option value={p}>{p}p · {s.width}×{s.height}</option>
+              {#each RESOLUTIONS as r (r.shortSide)}
+                {@const s = targetSize(orig, r.shortSide)}
+                <option value={r.shortSide}>
+                  {r.label} · {s.width}×{s.height}{r.shortSide > origShort ? " ↑" : ""}
+                </option>
               {/each}
             </select>
           </label>
+          {#if escalando}
+            <p class="-mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+              Tu vídeo es de {orig.width}×{orig.height}: al subirlo a {size?.width}×{size?.height} el archivo pesará
+              más pero no se verá con más detalle del que ya tiene.
+            </p>
+          {/if}
           <label class="flex items-center justify-between gap-3">
             <span>Codificador</span>
             <select bind:value={encoder} class="field w-48">

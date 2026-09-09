@@ -67,6 +67,15 @@ export function originalSize(): FrameSize | null {
 }
 
 /** Escala manteniendo la proporción para que el lado corto mida `shortSide` (null = original). */
+/** Presets por lado corto, del más grande al más pequeño. */
+export const RESOLUTIONS: { shortSide: number; label: string; hint: string }[] = [
+  { shortSide: 2160, label: "4K", hint: "Máxima calidad, archivos grandes" },
+  { shortSide: 1440, label: "2K", hint: "Muy buena calidad" },
+  { shortSide: 1080, label: "1080p", hint: "Lo habitual en redes" },
+  { shortSide: 720, label: "720p", hint: "Ligero" },
+  { shortSide: 480, label: "480p", hint: "Muy ligero" },
+];
+
 export function targetSize(orig: FrameSize, shortSide: number | null): FrameSize {
   if (!shortSide) return orig;
   const scale = shortSide / Math.min(orig.width, orig.height);

@@ -63,8 +63,9 @@ class Session {
   }
 
   /** Crea un proyecto en blanco y entra al editor. */
-  create(name = "Proyecto sin título") {
+  create(name = "Proyecto sin título", aspect?: typeof project.aspect) {
     project.reset();
+    if (aspect) project.aspect = aspect;
     this.id = newProjectId();
     this.name = name;
     this.createdAt = Date.now();

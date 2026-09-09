@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { FolderOpen, HardDrive, LoaderCircle, Plus, Trash2, TriangleAlert } from "@lucide/svelte";
   import Logo from "./Logo.svelte";
+  import NewProjectDialog from "./NewProjectDialog.svelte";
   import { session, listProjects } from "$lib/session.svelte";
   import { deleteProject, projectsStorage, type ProjectSummary } from "$lib/tauri/projects";
   import { formatBytes, formatDuration } from "$lib/format";
@@ -12,6 +13,7 @@
   let error = $state<string | null>(null);
   let confirming = $state<string | null>(null);
   let busy = $state<string | null>(null);
+  let creating = $state(false);
 
   async function refresh() {
     loading = true;
@@ -77,7 +79,7 @@
         <Logo class="h-8" />
         <p class="mt-2 text-sm text-muted">Tus proyectos. Elige uno para seguir o empieza de cero.</p>
       </div>
-      <button class="btn-accent h-10 px-4 text-sm" onclick={() => session.create()}>
+      <button class="btn-accent h-10 px-4 text-sm" onclick={() => (creating = true)}>
         <Plus size={16} /> Proyecto nuevo
       </button>
     </div>
@@ -94,7 +96,7 @@
       <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <FolderOpen size={34} class="text-muted opacity-50" />
         <p class="text-sm text-muted">Todavía no hay proyectos guardados.</p>
-        <button class="btn-accent h-9 px-4" onclick={() => session.create()}>
+        <button class="btn-accent h-9 px-4" onclick={() => (creating = true)}>
           <Plus size={15} /> Crear el primero
         </button>
       </div>
@@ -156,7 +158,17 @@
       </ul>
     {/if}
 
-    {#if storage}
+    {#if creating}
+    <NewProjectDialog
+      oncreate={(name, aspect) => {
+        creating = false;
+        session.create(name, aspect);
+      }}
+      oncancel={() => (creating = false)}
+    />
+  {/if}
+
+  {#if storage}
       <p class="mt-8 flex items-center gap-1.5 text-[11px] text-muted">
         <HardDrive size={12} />
         {projects.length}

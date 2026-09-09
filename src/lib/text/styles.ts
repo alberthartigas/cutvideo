@@ -19,6 +19,8 @@ export interface TextData {
   wordBoxColor?: string;
   /** Resplandor tipo neón del color del texto. */
   glow?: boolean;
+  /** Pasa el texto a MAYÚSCULAS al dibujarlo (los subtítulos virales las usan). */
+  uppercase?: boolean;
   /** Centro del bloque de texto, normalizado (0.5, 0.5 = centro del frame). */
   x: number;
   y: number;

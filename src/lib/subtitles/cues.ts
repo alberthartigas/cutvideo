@@ -124,18 +124,21 @@ export function cuesFromSegments(segments: Segment[], options: Partial<CueOption
 export interface SubtitleStyle {
   id: string;
   name: string;
-  /** Cómo se ve en CapCut, para orientarse. */
+  /** Cómo se ve, para orientarse. */
   hint: string;
   data: TextData;
   cue?: Partial<CueOptions>;
 }
 
+const IMPACT = 'Impact, "Arial Black", Haettenschweiler, sans-serif';
+const GROTESCA = '"Montserrat", "Helvetica Neue", "Arial Black", system-ui, sans-serif';
+
 const base: TextData = {
   ...DEFAULT_TEXT,
   text: "",
   fontSize: 0.055,
-  y: 0.88,
-  maxWidth: 0.8,
+  y: 0.82,
+  maxWidth: 0.86,
   animIn: "fade",
   animOut: "fade",
   inDur: 0.08,
@@ -143,46 +146,152 @@ const base: TextData = {
   emphasis: "none",
 };
 
-const IMPACT = 'Impact, "Arial Black", Haettenschweiler, sans-serif';
-
-/** Estilos de subtítulo inspirados en las plantillas más usadas de CapCut. */
+/**
+ * Estilos de subtítulo. Los primeros son los que usan los vídeos que funcionan
+ * en redes: pocas palabras en pantalla, MAYÚSCULAS, letra gorda y la palabra
+ * que se está diciendo destacada (crece, salta o se pinta de color).
+ */
 export const SUBTITLE_STYLES: SubtitleStyle[] = [
+  {
+    id: "viral",
+    name: "Viral",
+    hint: "La palabra que se dice crece y se pinta de amarillo",
+    data: {
+      ...base,
+      fontFamily: GROTESCA,
+      uppercase: true,
+      fontSize: 0.075,
+      y: 0.74,
+      stroke: 0.07,
+      strokeColor: "#000000",
+      shadow: true,
+      emphasis: "wordgrow",
+      highlightColor: "#ffd60a",
+    },
+    cue: { maxWords: 4, maxChars: 22, maxLines: 2 },
+  },
+  {
+    id: "hormozi",
+    name: "Hormozi",
+    hint: "Mayúsculas gordas con caja de color saltando de palabra en palabra",
+    data: {
+      ...base,
+      fontFamily: IMPACT,
+      bold: false,
+      uppercase: true,
+      fontSize: 0.08,
+      y: 0.72,
+      stroke: 0.055,
+      shadow: true,
+      emphasis: "wordbox",
+      wordBoxColor: "#22c55e",
+      highlightColor: "#ffffff",
+    },
+    cue: { maxWords: 3, maxChars: 18, maxLines: 2 },
+  },
+  {
+    id: "golpe",
+    name: "Golpe",
+    hint: "Cada palabra entra con un golpe y una sacudida corta",
+    data: {
+      ...base,
+      fontFamily: GROTESCA,
+      uppercase: true,
+      fontSize: 0.075,
+      y: 0.74,
+      stroke: 0.07,
+      shadow: true,
+      emphasis: "wordpunch",
+      highlightColor: "#ff375f",
+    },
+    cue: { maxWords: 3, maxChars: 20, maxLines: 2 },
+  },
+  {
+    id: "beast",
+    name: "Beast",
+    hint: "Enorme, amarillo y con borde negro grueso",
+    data: {
+      ...base,
+      fontFamily: IMPACT,
+      bold: false,
+      uppercase: true,
+      fontSize: 0.095,
+      y: 0.7,
+      color: "#ffd60a",
+      stroke: 0.09,
+      strokeColor: "#000000",
+      shadow: true,
+      emphasis: "wordpunch",
+      highlightColor: "#ffffff",
+    },
+    cue: { maxWords: 3, maxChars: 16, maxLines: 2 },
+  },
+  {
+    id: "oneword",
+    name: "Palabra a palabra",
+    hint: "Una sola palabra enorme en el centro, estilo Shorts",
+    data: {
+      ...base,
+      fontFamily: IMPACT,
+      bold: false,
+      uppercase: true,
+      fontSize: 0.13,
+      y: 0.5,
+      stroke: 0.07,
+      shadow: true,
+      animIn: "pop",
+      inDur: 0.12,
+      animOut: "none",
+    },
+    cue: { maxWords: 1 },
+  },
+  {
+    id: "sube",
+    name: "Sube",
+    hint: "La palabra que se dice sube y se ilumina",
+    data: {
+      ...base,
+      fontFamily: GROTESCA,
+      uppercase: true,
+      fontSize: 0.07,
+      y: 0.76,
+      stroke: 0.06,
+      shadow: true,
+      emphasis: "wordrise",
+      highlightColor: "#7cf0ff",
+    },
+    cue: { maxWords: 4, maxChars: 24, maxLines: 2 },
+  },
+  {
+    id: "karaoke",
+    name: "Karaoke",
+    hint: "Las palabras se van tiñendo según se pronuncian",
+    data: { ...base, stroke: 0.06, shadow: true, emphasis: "karaoke", highlightColor: "#ffd166" },
+    cue: { maxWords: 6, maxChars: 30 },
+  },
+  {
+    id: "neon",
+    name: "Neón",
+    hint: "Resplandor de color, para vídeos de noche o gaming",
+    data: {
+      ...base,
+      fontFamily: GROTESCA,
+      uppercase: true,
+      fontSize: 0.07,
+      color: "#ff5ec4",
+      glow: true,
+      shadow: false,
+      stroke: 0,
+      emphasis: "wordgrow",
+      highlightColor: "#ffffff",
+    },
+    cue: { maxWords: 4, maxChars: 22 },
+  },
   {
     id: "classic",
     name: "Clásico TikTok",
     hint: "Blanco, negrita, borde negro y sombra",
     data: { ...base, stroke: 0.06, strokeColor: "#000000", shadow: true },
-  },
-  {
-    id: "karaoke",
-    name: "Karaoke amarillo",
-    hint: "Las palabras se van tiñendo de amarillo al pronunciarse",
-    data: { ...base, stroke: 0.06, shadow: true, emphasis: "karaoke", highlightColor: "#ffd166" },
-  },
-  {
-    id: "wordbox",
-    name: "Palabra en caja",
-    hint: "La palabra actual lleva una caja de color (estilo Hormozi)",
-    data: { ...base, fontFamily: IMPACT, bold: false, stroke: 0.05, shadow: true, emphasis: "wordbox", wordBoxColor: "#16a34a", fontSize: 0.06 },
-  },
-  {
-    id: "wordpop",
-    name: "Pop por palabra",
-    hint: "Cada palabra salta al pronunciarse y queda resaltada",
-    data: { ...base, stroke: 0.06, shadow: true, emphasis: "wordpop", highlightColor: "#ffd166" },
-  },
-  {
-    id: "wordbounce",
-    name: "Rebote por palabra",
-    hint: "Cada palabra da un botecito al pronunciarse",
-    data: { ...base, stroke: 0.06, shadow: true, emphasis: "wordbounce", highlightColor: "#7cf0ff" },
-  },
-  {
-    id: "oneword",
-    name: "Palabra a palabra",
-    hint: "Una palabra grande en el centro, estilo Shorts",
-    data: { ...base, fontFamily: IMPACT, bold: false, fontSize: 0.12, y: 0.5, stroke: 0.06, shadow: true, animIn: "pop", inDur: 0.14, animOut: "none" },
-    cue: { maxWords: 1 },
   },
   {
     id: "box",
@@ -194,13 +303,15 @@ export const SUBTITLE_STYLES: SubtitleStyle[] = [
     id: "readable",
     name: "Amarillo legible",
     hint: "Amarillo en negrita sobre caja negra (el más legible en móvil)",
-    data: { ...base, color: "#ffe135", shadow: false, box: true, boxColor: "#000000", boxOpacity: 0.85, highlightColor: "#ffffff" },
-  },
-  {
-    id: "neon",
-    name: "Neón",
-    hint: "Texto con resplandor de color",
-    data: { ...base, color: "#ff5ec4", glow: true, shadow: false, stroke: 0, highlightColor: "#ffffff" },
+    data: {
+      ...base,
+      color: "#ffe135",
+      shadow: false,
+      box: true,
+      boxColor: "#000000",
+      boxOpacity: 0.85,
+      highlightColor: "#ffffff",
+    },
   },
   {
     id: "typewriter",
@@ -217,7 +328,16 @@ export const SUBTITLE_STYLES: SubtitleStyle[] = [
   {
     id: "elegant",
     name: "Elegante",
-    hint: "Serif, blanco con sombra, para vlogs y lifestyle",
-    data: { ...base, fontFamily: 'Georgia, "Times New Roman", serif', bold: false, fontSize: 0.05, shadow: true, stroke: 0, animIn: "fadezoom", inDur: 0.2 },
+    hint: "Serif con sombra, para vlogs y lifestyle",
+    data: {
+      ...base,
+      fontFamily: 'Georgia, "Times New Roman", serif',
+      bold: false,
+      fontSize: 0.05,
+      shadow: true,
+      stroke: 0,
+      animIn: "fadezoom",
+      inDur: 0.2,
+    },
   },
 ];
