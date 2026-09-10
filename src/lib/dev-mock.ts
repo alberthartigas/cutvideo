@@ -90,6 +90,16 @@ export function installDevMock() {
         return "/tmp/CutVideo.mp4";
       case "plugin:event|listen":
         return ++listeners;
+      case "analyze_highlights": {
+        // Perfil sintético con tres picos claros, para poder comprobar que la
+        // selección se queda con ellos y no con los tramos planos.
+        const r = args.request as { start: number; end: number };
+        const n = Math.max(1, Math.round((r.end - r.start) / 0.5));
+        const times = Array.from({ length: n }, (_, i) => r.start + i * 0.5);
+        const pico = (i: number, centro: number) => Math.exp(-((i - centro) ** 2) / 40);
+        const loudness = times.map((_, i) => 0.1 + 0.8 * (pico(i, n * 0.15) + pico(i, n * 0.5) + pico(i, n * 0.85)));
+        return { times, loudness, motion: loudness.map((v) => v * 0.5), cuts: [] };
+      }
       case "builtin_sfx": {
         const cat: [string, string, string][] = [
           ["whoosh-corto", "Whoosh corto", "Transiciones"],

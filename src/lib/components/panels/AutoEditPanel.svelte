@@ -65,6 +65,13 @@
         <span class="font-medium">Vídeo montado</span>
       </div>
       <ul class="space-y-1 text-muted">
+        {#if r.highlights}
+          <li>
+            · {r.highlights.picks} momentos escogidos ·
+            de {formatDuration(r.highlights.originalSeconds).slice(0, -3)}
+            a {formatDuration(r.highlights.seconds).slice(0, -3)}
+          </li>
+        {/if}
         {#if r.removedSeconds > 0}<li>· {formatDuration(r.removedSeconds).slice(0, -3)} de silencios quitados</li>{/if}
         {#if r.cuts}<li>· {r.cuts} cortes</li>{/if}
         {#if r.transitions}<li>· {r.transitions} transiciones</li>{/if}
@@ -121,8 +128,26 @@
     {/if}
 
     <div class="flex flex-col gap-2 text-xs">
-      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.removeSilences} /> Quitar silencios</label>
-      {#if o.removeSilences}
+      <label class="row">
+        <input type="checkbox" class="accent-accent" bind:checked={o.selectHighlights} /> Escoger los mejores momentos
+      </label>
+      {#if o.selectHighlights}
+        <p class="sub text-[10px] leading-snug">
+          Mira todo el material, puntúa cada tramo por lo que suena y lo que se mueve, y monta solo
+          lo mejor en orden. Sustituye a quitar silencios.
+        </p>
+        <label class="sub">
+          <span>Dejarlo en</span>
+          <input class="flex-1 accent-accent" type="range" min="15" max="300" step="5" bind:value={o.targetSeconds} />
+          <span class="w-12 text-right tabular-nums">{o.targetSeconds < 60 ? `${o.targetSeconds} s` : `${Math.round(o.targetSeconds / 60)} min`}</span>
+        </label>
+      {/if}
+
+      <label class="row" class:opacity-50={o.selectHighlights}>
+        <input type="checkbox" class="accent-accent" bind:checked={o.removeSilences} disabled={o.selectHighlights} />
+        Quitar silencios
+      </label>
+      {#if o.removeSilences && !o.selectHighlights}
         <label class="sub">
           <span>Sensibilidad</span>
           <input class="flex-1 accent-accent" type="range" min="-50" max="-15" step="1" bind:value={o.silenceThreshold} />

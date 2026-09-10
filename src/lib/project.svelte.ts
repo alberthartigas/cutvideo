@@ -561,6 +561,11 @@ class ProjectStore {
     return removed;
   }
 
+  /** Recoloca la pista principal tras sustituir sus clips desde fuera. */
+  relayoutVideo() {
+    this.#relayout(this.videoTrack);
+  }
+
   /** Instantes de los cortes de la pista principal (el inicio de cada clip menos el primero). */
   cutPoints(): number[] {
     return this.videoTrack.clips.slice(1).map((c) => c.start);

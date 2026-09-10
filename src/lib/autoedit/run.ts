@@ -8,6 +8,7 @@ import type { Word } from "$lib/subtitles/cues";
 import { DEFAULT_TEXT, type TextData } from "$lib/text/styles";
 import { getTransition } from "$lib/transitions/presets";
 import { autoLayers } from "./layers";
+import { applyHighlights, planHighlights } from "./highlights";
 
 // Espejo de src-tauri/src/analyze.rs, music_rights.rs y ai.rs.
 export interface Silence {
@@ -137,6 +138,10 @@ export function localPlan(words: Word[], duration: number, subtitleStyle: string
 }
 
 export interface AutoEditOptions {
+  /** Analiza el material y se queda solo con los mejores momentos. */
+  selectHighlights: boolean;
+  /** A cuántos segundos dejarlo. */
+  targetSeconds: number;
   removeSilences: boolean;
   /** dBFS por debajo del cual se considera silencio. */
   silenceThreshold: number;
@@ -168,6 +173,8 @@ export interface AutoEditOptions {
 }
 
 export const DEFAULT_AUTOEDIT: AutoEditOptions = {
+  selectHighlights: true,
+  targetSeconds: 60,
   removeSilences: true,
   silenceThreshold: -32,
   silenceMin: 0.9,
@@ -195,6 +202,8 @@ export interface AutoEditResult {
   transitions: number;
   subtitles: number;
   texts: number;
+  /** Momentos escogidos y a cuánto quedó el vídeo. */
+  highlights: { picks: number; seconds: number; originalSeconds: number } | null;
   /** Título de la pista de música que se ha puesto, si se ha puesto alguna. */
   music: string | null;
   /** Capas preparadas: croma, recortes, imagen en imagen y escenas añadidas. */
@@ -290,6 +299,7 @@ export async function runAutoEdit(
     transitions: 0,
     subtitles: 0,
     texts: 0,
+    highlights: null,
     music: null,
     layers: { chromaed: 0, cutout: 0, pip: 0, added: 0 },
     bpm: null,
@@ -317,8 +327,39 @@ export async function runAutoEdit(
     }
   }
 
-  // 2) Quitar silencios.
-  if (options.removeSilences) {
+  // 2) Quedarse con lo mejor del material.
+  //
+  // Va antes que los silencios y los sustituye: si ya se han elegido los
+  // momentos buenos, volver a picar por pausas solo estropea lo elegido.
+  let haElegido = false;
+  if (options.selectHighlights) {
+    const plan = await planHighlights(
+      [...project.videoTrack.clips],
+      Math.max(5, options.targetSeconds),
+      onStep,
+      () => false,
+    );
+    result.notes.push(...plan.notes);
+    if (plan.picks.length) {
+      onStep(`Montando ${plan.picks.length} momentos…`);
+      applyHighlights(plan.picks);
+      result.highlights = {
+        picks: plan.picks.length,
+        seconds: plan.seconds,
+        originalSeconds: plan.originalSeconds,
+      };
+      result.cuts = Math.max(0, plan.picks.length - 1);
+      result.removedSeconds = Math.max(0, plan.originalSeconds - plan.seconds);
+      haElegido = true;
+    } else {
+      result.notes.push(
+        "No se ha podido elegir momentos: se sigue con el vídeo entero y quitando silencios.",
+      );
+    }
+  }
+
+  // 3) Quitar silencios (solo si no se han elegido momentos).
+  if (options.removeSilences && !haElegido) {
     onStep("Buscando silencios…");
     const silences = await detectSilences(options.silenceThreshold, options.silenceMin);
     const total = project.duration;
@@ -343,7 +384,7 @@ export async function runAutoEdit(
     }
   }
 
-  // 3) Ajustar los cortes al compás moviendo el borde entre clips.
+  // 4) Ajustar los cortes al compás moviendo el borde entre clips.
   if (options.syncToBeat && beats.length > 1) {
     onStep("Ajustando los cortes al compás…");
     const period = beats[1] - beats[0];
@@ -362,7 +403,7 @@ export async function runAutoEdit(
     if (moved === 0) result.notes.push("Los cortes ya caían en el compás.");
   }
 
-  // 4) Transiciones en todos los cortes.
+  // 5) Transiciones en todos los cortes.
   if (options.addTransitions && project.videoTrack.clips.length > 1) {
     onStep("Poniendo transiciones…");
     if (options.transitionId === "auto") {
@@ -374,7 +415,7 @@ export async function runAutoEdit(
     result.transitions = project.videoTrack.clips.filter((c) => c.transition).length;
   }
 
-  // 5) Capas superpuestas: croma, recorte de personas o imagen en imagen.
+  // 6) Capas superpuestas: croma, recorte de personas o imagen en imagen.
   if (options.useLayers) {
     try {
       result.layers = await autoLayers(
@@ -396,7 +437,7 @@ export async function runAutoEdit(
     }
   }
 
-  // 6) Subtítulos.
+  // 7) Subtítulos.
   let transcriptText = "";
   let lastWords: Word[] = [];
   if (options.addSubtitles) {
@@ -418,7 +459,7 @@ export async function runAutoEdit(
     }
   }
 
-  // 7) Título y frases destacadas con IA.
+  // 8) Título y frases destacadas con IA.
   if (options.useAi) {
     const local = options.aiProvider === "none";
     onStep(local ? "Redactando los textos…" : "Pidiendo el plan de edición…");
