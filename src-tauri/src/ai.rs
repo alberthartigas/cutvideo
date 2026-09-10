@@ -95,6 +95,9 @@ pub struct EditPlanRequest {
     /// A cuántos segundos hay que dejar el vídeo.
     #[serde(default)]
     pub target_seconds: Option<f64>,
+    /// Modelo concreto, si el usuario ha elegido uno (Ollama, sobre todo).
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -427,8 +430,17 @@ async fn modelo_disponible(p: &Provider, key: &str) -> Option<String> {
         .or_else(|| disponibles.into_iter().find(|d| es_de_texto(d)))
 }
 
-async fn plan_openai_compatible(p: &Provider, key: &str, prompt: &str) -> Result<EditPlan, String> {
-    let modelo = resolve_model(p, key).await;
+async fn plan_openai_compatible(
+    p: &Provider,
+    key: &str,
+    prompt: &str,
+    elegido: Option<&str>,
+) -> Result<EditPlan, String> {
+    // Si el usuario ha elegido modelo, manda el suyo; si no, el que esté vivo.
+    let modelo = match elegido.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(m) => m.to_string(),
+        None => resolve_model(p, key).await,
+    };
     let body = serde_json::json!({
         "model": modelo,
         "temperature": 0.7,
@@ -566,7 +578,53 @@ pub async fn ai_edit_plan(app: tauri::AppHandle, request: EditPlanRequest) -> Re
             format!("Falta la clave de API de {}. Añádela en Ajustes → Claves de API.", p.name)
         })?
     };
-    plan_openai_compatible(p, &key, &prompt).await
+    plan_openai_compatible(p, &key, &prompt, request.model.as_deref()).await
+}
+
+/// Modelos instalados/disponibles en un servicio, para poder elegir.
+#[tauri::command]
+pub async fn ai_models(provider: String) -> Result<Vec<String>, String> {
+    let p = PROVIDERS
+        .iter()
+        .find(|p| p.id == provider)
+        .ok_or_else(|| format!("Servicio de IA desconocido: {provider}"))?;
+    let key = if p.secret.is_empty() {
+        "local".to_string()
+    } else {
+        secrets::api_key(p.secret)?.unwrap_or_default()
+    };
+    let url = p
+        .url
+        .strip_suffix("/chat/completions")
+        .map(|base| format!("{base}/models"))
+        .ok_or("Ese servicio no publica su lista de modelos")?;
+    let response = http_client()?
+        .get(url)
+        .bearer_auth(&key)
+        .send()
+        .await
+        .map_err(|e| {
+            if p.secret.is_empty() {
+                format!("Ollama no responde en tu ordenador ({e}). Ábrelo y vuelve a intentarlo.")
+            } else {
+                format!("No se pudo conectar con {}: {e}", p.name)
+            }
+        })?;
+    if !response.status().is_success() {
+        return Err(friendly_error(p.name, response.status().as_u16(), String::new()));
+    }
+    let cuerpo: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    Ok(cuerpo
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|lista| {
+            lista
+                .iter()
+                .filter_map(|m| m.get("id")?.as_str().map(str::to_string))
+                .filter(|id| es_de_texto(id))
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -593,6 +651,7 @@ mod tests {
                 MaterialClip { index: 1, name: "cena.mov".into(), duration: 18.0, recorded_at: None, candidates: vec![] },
             ],
             target_seconds: Some(20.0),
+            model: None,
         }
     }
 

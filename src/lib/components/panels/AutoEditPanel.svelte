@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Brain, ChevronDown, CircleCheck, LoaderCircle, Settings, Sparkles, TriangleAlert, WandSparkles } from "@lucide/svelte";
+  import { Brain, ChevronDown, CircleCheck, LoaderCircle, RefreshCw, Settings, Sparkles, TriangleAlert, WandSparkles } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project } from "$lib/project.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -8,7 +8,7 @@
   import { SUBTITLE_STYLES } from "$lib/subtitles/cues";
   import { TRANSITIONS } from "$lib/transitions/presets";
   import { LANGUAGES, TRANSCRIBE_PROVIDERS } from "$lib/tauri/transcribe";
-  import { AI_PROVIDERS, DEFAULT_AUTOEDIT, runAutoEdit, type AutoEditOptions, type AutoEditResult } from "$lib/autoedit/run";
+  import { AI_PROVIDERS, DEFAULT_AUTOEDIT, aiModels, runAutoEdit, type AutoEditOptions, type AutoEditResult } from "$lib/autoedit/run";
   import { formatDuration } from "$lib/format";
   import { cargarAprendido, olvidarAprendido, NADA_APRENDIDO, type Aprendido } from "$lib/autoedit/learning";
 
@@ -23,6 +23,26 @@
   let keys = $state<Record<string, boolean>>({});
   /** Lo que la autoedición ha aprendido de montajes anteriores. */
   let aprendido = $state<Aprendido>(NADA_APRENDIDO);
+  /** Modelos instalados en Ollama, para poder elegir uno más grande. */
+  let modelos = $state<string[]>([]);
+  let modelosError = $state<string | null>(null);
+
+  async function mirarModelos() {
+    if (o.aiProvider !== "ollama") return;
+    modelosError = null;
+    try {
+      modelos = await aiModels("ollama");
+      if (o.aiModel && !modelos.includes(o.aiModel)) o.aiModel = "";
+    } catch (e) {
+      modelos = [];
+      modelosError = String(e);
+    }
+  }
+  // Se pregunta cada vez que se elige Ollama: puede haber descargado otro.
+  $effect(() => {
+    void o.aiProvider;
+    mirarModelos();
+  });
   let verAprendido = $state(false);
 
   let ready = $derived(project.videoTrack.clips.length > 0);
@@ -249,11 +269,25 @@
           </select>
         </label>
         {#if o.aiProvider === "ollama"}
-          <p class="sub text-[10px] leading-snug">
-            Usa el modelo que tengas en tu ordenador con Ollama: no manda nada a internet ni necesita
-            clave. Ten Ollama abierto y un modelo descargado (por ejemplo
-            <code>ollama pull qwen2.5:7b-instruct</code>). Los subtítulos sí se transcriben fuera.
-          </p>
+          <label class="sub">
+            <span>Modelo</span>
+            <select class="field h-6 flex-1 text-xs" bind:value={o.aiModel}>
+              <option value="">Automático</option>
+              {#each modelos as m (m)}<option value={m}>{m}</option>{/each}
+            </select>
+            <button class="tool h-6 w-6 justify-center px-0" title="Volver a mirar" onclick={mirarModelos}>
+              <RefreshCw size={12} />
+            </button>
+          </label>
+          {#if modelosError}
+            <p class="sub text-[10px] leading-snug text-red-500">{modelosError}</p>
+          {:else}
+            <p class="sub text-[10px] leading-snug">
+              Corre en tu ordenador: sin clave y sin mandar nada a internet. Ten Ollama abierto con un
+              modelo descargado (<code>ollama pull qwen2.5:7b-instruct</code>). Los subtítulos sí se
+              transcriben fuera.
+            </p>
+          {/if}
         {/if}
         {#if o.aiProvider !== "none"}
           <label class="sub">

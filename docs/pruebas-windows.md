@@ -116,6 +116,26 @@ sigue yendo a Groq/OpenAI: Ollama no transcribe audio.
    curl http://localhost:11434/v1/models
    ```
 
-6. En CutVideo: **Autoedición → Dirigir con IA → Con: Ollama**. Si el modelo que
-   descargaste no es de la lista de preferidos, la app coge el primero de texto
-   que encuentre instalado.
+6. En CutVideo: **Autoedición → Dirigir con IA → Con: Ollama**. El desplegable
+   **Modelo** enseña los que tengas descargados; en «Automático» la app elige el
+   primero de su lista de preferidos que encuentre instalado.
+
+### ¿Cabe un modelo más grande del que dice la tabla?
+
+Cabe, pero se reparte. Ollama mete en la tarjeta las capas que quepan y el resto
+las hace la CPU con la RAM del sistema: funciona, pero cada capa que se sale
+cuesta velocidad. Con 8 GB de VRAM, en 4 bits:
+
+| Modelo | Ocupa | En una RTX 4060 Ti 8 GB |
+| --- | --- | --- |
+| Llama 3.2 3B | ~2,0 GB | vuela (~90 tok/s) |
+| Qwen 2.5 7B | ~4,7 GB | entero en la tarjeta, ~45 tok/s |
+| Llama 3.1 8B | ~4,9 GB | entero, ~40 tok/s |
+| Mistral Nemo 12B | ~7,1 GB | justo; con contexto largo ya se sale |
+| Qwen 2.5 14B | ~9,0 GB | ~2 GB en la CPU, ~10 tok/s |
+| Gemma 2 27B | ~16 GB | media tarjeta fuera, ~3 tok/s: no |
+
+Como la autoedición hace **una sola llamada** por montaje, un 14B lento sigue
+siendo llevadero (medio minuto largo en vez de diez segundos) y escribe mejor
+los títulos. Merece la pena probar los dos y quedarse con el que dé mejores
+montajes.

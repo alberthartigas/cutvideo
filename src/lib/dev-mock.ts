@@ -313,6 +313,8 @@ export function installDevMock() {
       case "download_track":
         await sleep(700);
         return `${DIR}/music.mp3`;
+      case "ai_models":
+        return ["qwen2.5:7b-instruct", "llama3.1:8b", "qwen2.5:14b-instruct"];
       case "ai_edit_plan": {
         await sleep(900);
         // Con material delante, la IA simulada se queda con el mejor tramo de

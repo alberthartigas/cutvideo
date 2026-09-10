@@ -75,6 +75,7 @@ pub fn run() {
             music_rights::suggest_free_music,
             music_rights::download_track,
             ai::ai_edit_plan,
+            ai::ai_models,
             projects::list_projects,
             projects::load_project,
             projects::save_project,

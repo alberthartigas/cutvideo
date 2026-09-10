@@ -115,7 +115,11 @@ export const aiEditPlan = (request: {
   provider: AiProvider;
   material?: MaterialClip[];
   targetSeconds?: number | null;
+  model?: string | null;
 }) => invoke<EditPlan>("ai_edit_plan", { request });
+
+/** Modelos que tiene ese servicio a mano (en Ollama, los que hayas descargado). */
+export const aiModels = (provider: AiProvider) => invoke<string[]>("ai_models", { provider });
 
 /**
  * Resumen del material para la IA: por clip, sus mejores tramos con la
@@ -268,6 +272,8 @@ export interface AutoEditOptions {
   provider: TranscribeProvider;
   /** Servicio que redacta el título y las frases. */
   aiProvider: AiProvider;
+  /** Modelo concreto (vacío = el que el servicio tenga a mano). */
+  aiModel: string;
 }
 
 export const DEFAULT_AUTOEDIT: AutoEditOptions = {
@@ -294,6 +300,7 @@ export const DEFAULT_AUTOEDIT: AutoEditOptions = {
   provider: "groq",
   // Groq tiene plan gratuito y es la misma clave que los subtítulos.
   aiProvider: "groq",
+  aiModel: "",
 };
 
 export interface AutoEditResult {
@@ -539,6 +546,7 @@ export async function runAutoEdit(
           provider: options.aiProvider,
           material: describirMaterial(material, cand.candidates, lastWords),
           targetSeconds: objetivo,
+          model: options.aiModel || null,
         });
         picks = picksDeLaIA(planIA, material, objetivo);
         if (picks.length && planIA.reasoning) result.notes.push(`IA: ${planIA.reasoning}`);
@@ -701,6 +709,7 @@ export async function runAutoEdit(
             style: options.style,
             language: options.language || "es",
             provider: options.aiProvider,
+            model: options.aiModel || null,
           }));
       result.plan = plan;
 
