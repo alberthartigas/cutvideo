@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { CircleCheck, LoaderCircle, Settings, Sparkles, TriangleAlert, WandSparkles } from "@lucide/svelte";
+  import { Brain, ChevronDown, CircleCheck, LoaderCircle, Settings, Sparkles, TriangleAlert, WandSparkles } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project } from "$lib/project.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -10,6 +10,7 @@
   import { LANGUAGES, TRANSCRIBE_PROVIDERS } from "$lib/tauri/transcribe";
   import { AI_PROVIDERS, DEFAULT_AUTOEDIT, runAutoEdit, type AutoEditOptions, type AutoEditResult } from "$lib/autoedit/run";
   import { formatDuration } from "$lib/format";
+  import { cargarAprendido, olvidarAprendido, NADA_APRENDIDO, type Aprendido } from "$lib/autoedit/learning";
 
   type Phase =
     | { kind: "idle" }
@@ -20,6 +21,9 @@
   let phase = $state<Phase>({ kind: "idle" });
   let o = $state<AutoEditOptions>({ ...DEFAULT_AUTOEDIT });
   let keys = $state<Record<string, boolean>>({});
+  /** Lo que la autoedición ha aprendido de montajes anteriores. */
+  let aprendido = $state<Aprendido>(NADA_APRENDIDO);
+  let verAprendido = $state(false);
 
   let ready = $derived(project.videoTrack.clips.length > 0);
   let needsTranscribe = $derived(o.addSubtitles || o.useAi);
@@ -28,6 +32,7 @@
   let missingAiKey = $derived(o.useAi && aiNeedsKey !== null && keys[aiNeedsKey] === false);
 
   onMount(async () => {
+    refrescarAprendido();
     const needed = new Set<string>([...TRANSCRIBE_PROVIDERS.map((p) => p.id)]);
     for (const p of AI_PROVIDERS) if (p.needsKey) needed.add(p.needsKey);
     for (const id of needed) {
@@ -39,11 +44,26 @@
     }
   });
 
+  async function refrescarAprendido() {
+    aprendido = await cargarAprendido();
+  }
+
+  async function olvidar() {
+    try {
+      await olvidarAprendido();
+    } catch {
+      /* si no se puede borrar, al menos no se enseña nada viejo */
+    }
+    aprendido = NADA_APRENDIDO;
+    verAprendido = false;
+  }
+
   async function start() {
     phase = { kind: "running", step: "Preparando…" };
     try {
       const result = await runAutoEdit(o, (step) => (phase = { kind: "running", step }));
       phase = { kind: "done", result };
+      await refrescarAprendido();
     } catch (e) {
       phase = { kind: "error", message: String(e) };
     }
@@ -66,6 +86,7 @@
       </div>
       <ul class="space-y-1 text-muted">
         {#if r.mounted}<li>· {r.mounted} vídeos montados en orden de grabación</li>{/if}
+        {#if r.learned}<li>· Ajustado a tu forma de editar ({r.learned} {r.learned === 1 ? "edición" : "ediciones"})</li>{/if}
         {#if r.highlights}
           <li>
             · {r.highlights.picks} momentos escogidos ·
@@ -232,6 +253,32 @@
             <span>Estilo</span>
             <input class="field h-6 flex-1 text-xs" bind:value={o.style} placeholder="dinámico, tutorial, vlog…" />
           </label>
+        {/if}
+      {/if}
+
+      <label class="row">
+        <input type="checkbox" class="accent-accent" bind:checked={o.useLearning} />
+        Aprender de cómo edito
+      </label>
+      {#if o.useLearning}
+        {#if aprendido.ediciones === 0}
+          <p class="sub text-[10px] leading-snug">
+            Cada vez que exportes un vídeo hecho con autoedición, se guarda en tu ordenador qué has
+            cambiado (qué momentos dejas, el tamaño de los subtítulos, qué transiciones borras) y el
+            siguiente montaje empieza más cerca de tu gusto.
+          </p>
+        {:else}
+          <button class="sub w-full text-left" onclick={() => (verAprendido = !verAprendido)}>
+            <Brain size={12} class="shrink-0 text-accent" />
+            <span class="flex-1">Aprendido de {aprendido.ediciones} {aprendido.ediciones === 1 ? "edición" : "ediciones"}</span>
+            <ChevronDown size={12} class="shrink-0 transition-transform {verAprendido ? 'rotate-180' : ''}" />
+          </button>
+          {#if verAprendido}
+            <ul class="space-y-1 pl-[22px] text-[10px] leading-snug text-muted">
+              {#each aprendido.frases as frase (frase)}<li>· {frase}</li>{/each}
+            </ul>
+            <button class="sub w-full justify-center text-red-500" onclick={olvidar}>Olvidar lo aprendido</button>
+          {/if}
         {/if}
       {/if}
 

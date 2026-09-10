@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Track } from "$lib/project.svelte";
 import type { MediaInfo } from "$lib/tauri/media";
+import type { Autoedicion } from "$lib/autoedit/learning";
 
 // Espejo de src-tauri/src/projects.rs.
 export interface ProjectSummary {
@@ -25,7 +26,14 @@ export interface ProjectFile {
   clipCount: number;
   durationSec: number;
   mediaPaths: string[];
-  data: { media: MediaInfo[]; tracks: Track[]; aspect?: string; fit?: string };
+  data: {
+    media: MediaInfo[];
+    tracks: Track[];
+    aspect?: string;
+    fit?: string;
+    /** Lo que dejó la última autoedición, para aprender de la edición al exportar. */
+    autoedit?: Autoedicion | null;
+  };
 }
 
 export const PROJECT_VERSION = 1;

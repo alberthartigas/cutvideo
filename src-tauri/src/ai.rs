@@ -248,6 +248,17 @@ fn build_prompt(request: &EditPlanRequest, transcript: &str) -> String {
     )
 }
 
+/// Lo que se ha aprendido viendo cómo remata él los montajes.
+fn aprendido_texto(frases: &[String]) -> String {
+    if frases.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nLO QUE HAS APRENDIDO DE ESTE USUARIO EN MONTAJES ANTERIORES (respétalo salvo que el estilo pedido diga otra cosa):\n- {}",
+        frases.join("\n- ")
+    )
+}
+
 /// El material clip a clip, para que la IA elija los momentos con contexto.
 fn describe_material(request: &EditPlanRequest) -> String {
     if request.material.is_empty() {
@@ -505,9 +516,12 @@ async fn plan_anthropic(key: &str, prompt: &str) -> Result<EditPlan, String> {
 
 /// Pide el plan de edición al servicio elegido.
 #[tauri::command]
-pub async fn ai_edit_plan(request: EditPlanRequest) -> Result<EditPlan, String> {
+pub async fn ai_edit_plan(app: tauri::AppHandle, request: EditPlanRequest) -> Result<EditPlan, String> {
     let transcript = trim_transcript(&request.transcript);
-    let prompt = build_prompt(&request, &transcript);
+    // Lo aprendido de ediciones anteriores va en el propio encargo: es lo que
+    // hace que cada montaje se parezca más a como edita él.
+    let aprendido = crate::learning::cargar(&app).resumen();
+    let prompt = format!("{}{}", build_prompt(&request, &transcript), aprendido_texto(&aprendido));
 
     if request.provider == "anthropic" {
         let key = secrets::api_key("anthropic")?
@@ -558,6 +572,14 @@ mod tests {
         assert!(texto.contains("1.0–4.0 s (interés 0.91): \"qué bonito\""));
         assert!(texto.contains("Clip 1 «cena.mov», 18.0 s\n"));
         assert!(texto.contains("unos 20 s"));
+    }
+
+    #[test]
+    fn lo_aprendido_se_le_cuenta_a_la_ia() {
+        assert_eq!(aprendido_texto(&[]), "");
+        let texto = aprendido_texto(&["Prefiere planos de 3 s.".into(), "Borra los rótulos.".into()]);
+        assert!(texto.contains("LO QUE HAS APRENDIDO"));
+        assert!(texto.contains("- Prefiere planos de 3 s.\n- Borra los rótulos."));
     }
 
     #[test]

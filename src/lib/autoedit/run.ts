@@ -9,6 +9,7 @@ import { DEFAULT_TEXT, type TextData } from "$lib/text/styles";
 import { getTransition } from "$lib/transitions/presets";
 import { autoLayers } from "./layers";
 import { analyzeCandidates, applyHighlights, planHighlights, type Highlight, type Origen } from "./highlights";
+import { cargarAprendido, NADA_APRENDIDO, type Aprendido } from "./learning";
 
 // Espejo de src-tauri/src/analyze.rs, music_rights.rs y ai.rs.
 export interface Silence {
@@ -258,6 +259,8 @@ export interface AutoEditOptions {
   /** Cuántas escenas de sobra como mucho. */
   maxSpareScenes: number;
   useAi: boolean;
+  /** Tener en cuenta lo aprendido de montajes anteriores. */
+  useLearning: boolean;
   style: string;
   language: string;
   /** Servicio que transcribe el audio. */
@@ -284,6 +287,7 @@ export const DEFAULT_AUTOEDIT: AutoEditOptions = {
   addSpareScenes: true,
   maxSpareScenes: 2,
   useAi: true,
+  useLearning: true,
   style: "dinámico, para redes sociales",
   language: "es",
   provider: "groq",
@@ -307,6 +311,8 @@ export interface AutoEditResult {
   layers: { chromaed: number; cutout: number; pip: number; added: number };
   bpm: number | null;
   plan: EditPlan | null;
+  /** Cuántas ediciones anteriores se han tenido en cuenta. */
+  learned: number;
   /** Avisos para enseñar al final (p. ej. que el ritmo no estaba claro). */
   notes: string[];
 }
@@ -340,9 +346,22 @@ function sinTrocitos(ranges: [number, number][], total: number, minimo: number):
 }
 
 /** El estilo de subtítulo pedido, o uno con gancho si está en "auto". */
-function estiloSubtitulo(id: string) {
+function estiloSubtitulo(id: string, aprendido?: Aprendido) {
   if (id !== "auto") return SUBTITLE_STYLES.find((s) => s.id === id) ?? SUBTITLE_STYLES[0];
-  return SUBTITLE_STYLES[0];
+  // En "auto" manda el estilo con el que se suele quedar él.
+  const suyo = aprendido?.estiloSubtitulo
+    ? SUBTITLE_STYLES.find((s) => s.id === aprendido.estiloSubtitulo)
+    : null;
+  return suyo ?? SUBTITLE_STYLES[0];
+}
+
+/** Ajusta un estilo de subtítulo al tamaño y la altura que él acaba poniendo. */
+function aSuMedida(data: TextData, aprendido: Aprendido): TextData {
+  return {
+    ...data,
+    ...(aprendido.subtituloFontSize ? { fontSize: aprendido.subtituloFontSize } : {}),
+    ...(aprendido.subtituloY ? { y: aprendido.subtituloY } : {}),
+  };
 }
 
 /**
@@ -402,8 +421,21 @@ export async function runAutoEdit(
     layers: { chromaed: 0, cutout: 0, pip: 0, added: 0 },
     bpm: null,
     plan: null,
+    learned: 0,
     notes: [],
   };
+  // Lo aprendido de montajes anteriores: aquí ajusta la duración de los planos,
+  // el tamaño de los subtítulos y si conviene poner rótulos o música; a la IA
+  // se lo cuenta el backend en el propio encargo.
+  const aprendido: Aprendido = options.useLearning ? await cargarAprendido() : NADA_APRENDIDO;
+  /** Lo que ponga este montaje, para poder compararlo al exportar. */
+  const rotulosPuestos: string[] = [];
+  let estiloPuesto: string | null = null;
+  let musicaPuesta: string | null = null;
+  if (aprendido.ediciones > 0) {
+    result.learned = aprendido.ediciones;
+  }
+
   // 0) Subir al montaje lo que esté en Medios y no se haya puesto.
   //
   // Así no hace falta arrastrar nada antes: se importa y se pulsa autoeditar.
@@ -519,7 +551,11 @@ export async function runAutoEdit(
     }
 
     if (!picks.length) {
-      const plan = await planHighlights(material, objetivo, onStep, () => false);
+      // Si sus montajes acaban con planos de ~3 s, se buscan tramos de ese tamaño.
+      const d = aprendido.duracionClip;
+      const min = d ? Math.min(4, Math.max(1.4, d * 0.8)) : undefined;
+      const max = d ? Math.min(8, Math.max((min ?? 2.2) + 1, d * 1.5)) : undefined;
+      const plan = await planHighlights(material, objetivo, onStep, () => false, min, max);
       result.notes.push(...plan.notes);
       picks = plan.picks;
       originalSeconds = plan.originalSeconds;
@@ -639,10 +675,11 @@ export async function runAutoEdit(
     }
     const transcript = { words: lastWords };
     if (transcript.words.length) {
-      const style = estiloSubtitulo(options.subtitleStyle);
+      const style = estiloSubtitulo(options.subtitleStyle, aprendido);
       const cues = buildCues(transcript.words, style.cue);
-      project.setSubtitles(cues, style.data);
+      project.setSubtitles(cues, aSuMedida(style.data, aprendido));
       result.subtitles = cues.length;
+      estiloPuesto = style.id;
     } else {
       result.notes.push("La transcripción no trae tiempos por palabra: no se han creado subtítulos.");
     }
@@ -695,14 +732,19 @@ export async function runAutoEdit(
         project.updateText(clip.id, { ...DEFAULT_TEXT, ...data, text });
         // Nunca más allá del final del vídeo, para no alargar el proyecto.
         project.trimOut(clip.id, Math.min(dur, Math.max(0.5, videoEnd - clip.start)));
+        rotulosPuestos.push(clip.id);
         result.texts++;
       };
       if (plan.title.trim()) {
         makeText(plan.title.trim(), 0, { ...preset.data, fontSize: 0.1, y: 0.42 }, 2.5);
       }
-      // Como mucho cuatro rótulos y separados: más de eso es ruido.
+      // Como mucho cuatro rótulos y separados: más de eso es ruido. Y si él
+      // los borra siempre, no se ponen: con el título de apertura basta.
       let ultimo = -Infinity;
-      for (const h of plan.highlights.slice(0, 4)) {
+      if (!aprendido.ponerRotulos && plan.highlights.length) {
+        result.notes.push("No he puesto frases sueltas: en tus montajes anteriores las quitas.");
+      }
+      for (const h of aprendido.ponerRotulos ? plan.highlights.slice(0, 4) : []) {
         const at = Math.min(Math.max(0, h.time), Math.max(0, videoEnd - 1));
         if (!h.text.trim() || at - ultimo < 4) continue;
         makeText(h.text.trim(), at, { ...preset.data, fontSize: 0.06, y: 0.2 }, 2);
@@ -724,13 +766,16 @@ export async function runAutoEdit(
         const style = SUBTITLE_STYLES.find((s) => s.id === plan.subtitleStyle);
         if (style) {
           const cues = buildCues(lastWords, style.cue);
-          project.setSubtitles(cues, style.data);
+          project.setSubtitles(cues, aSuMedida(style.data, aprendido));
           result.subtitles = cues.length;
+          estiloPuesto = style.id;
         }
       }
 
       // Música libre, si no había ninguna puesta.
-      if (options.addMusic && project.audioTrack.clips.length === 0 && plan.musicQuery) {
+      if (options.addMusic && !aprendido.ponerMusica) {
+        result.notes.push("No he puesto música: en tus montajes anteriores la quitas.");
+      } else if (options.addMusic && project.audioTrack.clips.length === 0 && plan.musicQuery) {
         onStep("Buscando música que pegue…");
         try {
           const pistas = await suggestFreeMusic(plan.musicQuery);
@@ -743,7 +788,7 @@ export async function runAutoEdit(
             );
             const info = await probeMedia(ruta);
             project.addMedia(info);
-            project.addClip(info);
+            musicaPuesta = project.addClip(info)?.id ?? null;
             result.music = `${elegida.title} · ${elegida.creator} · ${elegida.license}`;
           } else {
             result.notes.push("No se ha encontrado música libre que encaje con el vídeo.");
@@ -756,6 +801,19 @@ export async function runAutoEdit(
       result.notes.push(`No se pudo generar el plan con IA: ${e}`);
     }
   }
+
+  // Memoria de este montaje: al exportar se compara con lo que haya quedado.
+  project.autoedit = {
+    at: Date.now(),
+    objetivoSegundos: options.selectHighlights ? options.targetSeconds : 0,
+    momentos: project.videoTrack.clips.map((c) => c.id),
+    transiciones: project.videoTrack.clips
+      .map((c) => c.transition?.id)
+      .filter((id): id is string => !!id),
+    rotulos: rotulosPuestos,
+    musica: musicaPuesta,
+    estiloSubtitulo: estiloPuesto,
+  };
 
   project.setPlayhead(0);
   return result;

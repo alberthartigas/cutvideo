@@ -27,7 +27,13 @@ function snapshotProject(id: string, name: string, createdAt: number): ProjectFi
     clipCount: project.clipCount,
     durationSec: project.duration,
     mediaPaths: media.map((m) => m.path),
-    data: { media, tracks, aspect: project.aspect, fit: project.fit },
+    data: {
+      media,
+      tracks,
+      aspect: project.aspect,
+      fit: project.fit,
+      autoedit: $state.snapshot(project.autoedit),
+    },
   };
 }
 
@@ -39,6 +45,7 @@ function restoreProject(file: ProjectFile) {
   // pistas: se conservan las suyas y se añaden vacías las que falten.
   const saved = file.data.tracks ?? [];
   project.tracks = defaultTracks().map((def) => saved.find((t) => t.id === def.id) ?? def);
+  project.autoedit = file.data.autoedit ?? null;
   if (file.data.aspect) project.aspect = file.data.aspect as typeof project.aspect;
   if (file.data.fit) project.fit = file.data.fit as typeof project.fit;
 }

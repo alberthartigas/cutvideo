@@ -2,6 +2,7 @@ mod ai;
 mod analyze;
 mod export;
 mod highlights;
+mod learning;
 mod media;
 mod music_rights;
 mod neterr;
@@ -83,6 +84,9 @@ pub fn run() {
             proxies::make_proxy,
             proxies::make_filmstrip,
             waveforms::make_waveform,
+            learning::learning_summary,
+            learning::learning_record,
+            learning::learning_forget,
             proxies::clear_proxies,
             sfx::builtin_sfx,
             projects::projects_storage,

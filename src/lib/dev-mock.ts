@@ -56,6 +56,19 @@ const FILES: MediaInfo[] = [
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Aprendizaje simulado: vive mientras dure la pestaña. */
+const SIN_APRENDER = {
+  ediciones: 0,
+  frases: [] as string[],
+  estiloSubtitulo: null as string | null,
+  subtituloFontSize: null as number | null,
+  subtituloY: null as number | null,
+  duracionClip: null as number | null,
+  ponerRotulos: true,
+  ponerMusica: true,
+};
+let perfilSimulado = { ...SIN_APRENDER };
+
 /** Proyectos guardados "en disco" mientras dura la sesión del navegador. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const devProjects: { file: any; thumbnail: string | null }[] = [];
@@ -102,6 +115,29 @@ export function installDevMock() {
         const loudness = times.map((_, i) => 0.1 + 0.8 * (pico(i, n * 0.15) + pico(i, n * 0.5) + pico(i, n * 0.85)));
         return { times, loudness, motion: loudness.map((v) => v * 0.5), cuts: [] };
       }
+      case "learning_summary":
+        return perfilSimulado;
+      case "learning_record": {
+        // Se comporta como learning.rs: cuenta ediciones y resume lo aprendido.
+        const m = args.muestra as Record<string, number | string | boolean | null>;
+        perfilSimulado = {
+          ediciones: perfilSimulado.ediciones + 1,
+          frases: [
+            `Se queda con los subtítulos en estilo «${m.estiloSubtitulo ?? "discreto"}».`,
+            "Los planos le acaban quedando de unos 3,2 s.",
+          ],
+          estiloSubtitulo: (m.estiloSubtitulo as string) ?? null,
+          subtituloFontSize: (m.subtituloFontSize as number) ?? null,
+          subtituloY: (m.subtituloY as number) ?? null,
+          duracionClip: (m.duracionClip as number) ?? null,
+          ponerRotulos: Number(m.rotulosConservados) > 0,
+          ponerMusica: !!m.musicaConservada,
+        };
+        return perfilSimulado;
+      }
+      case "learning_forget":
+        perfilSimulado = { ...SIN_APRENDER };
+        return null;
       case "make_waveform": {
         // Onda sintética: voz a ráfagas con silencios, para ver los tramos.
         const info = FILES.find((f) => f.path === args.path);

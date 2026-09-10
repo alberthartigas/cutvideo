@@ -20,6 +20,10 @@
     type ExportResult,
   } from "$lib/tauri/export";
   import { basename, formatDuration } from "$lib/format";
+  import { aprenderDeLaEdicion, type Aprendido } from "$lib/autoedit/learning";
+
+  /** Si la edición venía de la autoedición, aquí queda lo que ha aprendido. */
+  let aprendido = $state<Aprendido | null>(null);
 
   type Phase =
     | { kind: "idle" }
@@ -77,6 +81,8 @@
       });
       const result = await exportVideo(buildExportPlan(output, target, encoder, assets));
       phase = { kind: "done", result };
+      // Lo que se exporta es lo que le gustó: de ahí aprende la autoedición.
+      aprendido = await aprenderDeLaEdicion();
     } catch (e) {
       phase = cancelled ? { kind: "idle" } : { kind: "error", message: String(e) };
     } finally {
@@ -94,6 +100,7 @@
     if (running) return;
     ui.exportOpen = false;
     phase = { kind: "idle" };
+    aprendido = null;
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -177,6 +184,13 @@
             <p class="truncate text-xs text-muted" title={phase.result.output}>{basename(phase.result.output)} · {phase.result.encoder}</p>
           </div>
         </div>
+        {#if aprendido}
+          <p class="rounded-lg bg-accent/10 p-2 text-[11px] leading-snug text-accent">
+            La autoedición ha aprendido de esta edición ({aprendido.ediciones}
+            {aprendido.ediciones === 1 ? "edición" : "ediciones"} en total): el próximo montaje se
+            parecerá más a este. Puedes verlo o borrarlo en Autoedición.
+          </p>
+        {/if}
         <div class="flex justify-end gap-2">
           <button class="btn" onclick={() => revealInFolder(phase.kind === "done" ? phase.result.output : "")}>
             <FolderOpen size={13} /> Mostrar en carpeta

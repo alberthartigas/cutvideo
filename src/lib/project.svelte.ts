@@ -6,6 +6,7 @@ import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffect
 import { DEFAULT_CHROMA, type ChromaKey } from "$lib/effects/chroma";
 import { DEFAULT_PATCH, type PatchData } from "$lib/patches/types";
 import { frameForAspect, type AspectId, type FitMode } from "$lib/aspect";
+import type { Autoedicion } from "$lib/autoedit/learning";
 import { DEFAULT_LAYOUT, OVERLAY_TRACK_IDS, isOverlayTrack, type ClipLayout } from "$lib/layers";
 
 /** Duración por defecto de un parche recién puesto (s). */
@@ -135,6 +136,12 @@ class ProjectStore {
   /** Píxeles por segundo. */
   zoom = $state(60);
   /** Proporción de salida elegida en la barra de título. */
+  /**
+   * Lo que dejó la última autoedición (qué momentos, transiciones y rótulos
+   * puso). Al exportar se compara con lo que hay para aprender del usuario;
+   * no es parte del montaje, solo memoria de cómo se llegó a él.
+   */
+  autoedit = $state<Autoedicion | null>(null);
   aspect = $state<AspectId>("original");
   /** Qué hacer cuando el vídeo no encaja en esa proporción. */
   fit = $state<FitMode>("cover");
@@ -340,6 +347,7 @@ class ProjectStore {
     this.zoom = 60;
     this.aspect = "original";
     this.fit = "cover";
+    this.autoedit = null;
     this.selectedId = null;
     this.#past = [];
     this.#future = [];
