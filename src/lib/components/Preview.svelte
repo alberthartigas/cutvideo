@@ -106,6 +106,9 @@
     const elA = active ? slotFor(active.id, incoming?.id ?? null) : undefined;
     const elB = incoming ? slotFor(incoming.id, active?.id ?? null) : undefined;
 
+    // Fuera de las transiciones, el clip activo lleva el reloj. En medio de
+    // una hay dos vídeos a la vez y manda el temporizador.
+    master = active && elA && !tr && elA instanceof HTMLVideoElement ? { el: elA, clip: active } : null;
     if (active && elA) syncClip(elA, active, t, playing);
     if (incoming && elB) {
       if (tr) syncClip(elB, incoming, t, playing);
@@ -143,6 +146,28 @@
     }
   }
 
+  /**
+   * Elemento que manda sobre el tiempo mientras se reproduce.
+   *
+   * Antes el reloj era `performance.now()` y el vídeo se corregía a él con un
+   * seek cada vez que se desviaba. Si `play()` fallaba —el WebView bloquea el
+   * sonido sin un gesto del usuario— el vídeo no avanzaba solo y se hacía un
+   * seek POR CADA FOTOGRAMA: cada uno decodifica desde el keyframe anterior,
+   * el preview iba a saltos, no sonaba nada y el procesador ardía. Ahora el
+   * vídeo activo es el reloj y el playhead lo sigue, como en cualquier
+   * reproductor. Solo se corrige con un seek al cambiar de clip.
+   */
+  let master: { el: HTMLMediaElement; clip: Clip } | null = null;
+  /** true si el sistema rechazó reproducir: hay que pedir un clic. */
+  let playBloqueado = $state(false);
+
+  /** Reintenta reproducir desde un clic, que es lo que el sistema exige. */
+  function desbloquearSonido() {
+    for (const el of [videoA, videoB, audioEl]) {
+      if (el && el.paused && el.dataset.src) el.play().then(() => (playBloqueado = false)).catch(() => {});
+    }
+  }
+
   /** Ajusta un elemento a un clip concreto en el instante `t`. */
   function syncClip(el: HTMLMediaElement, clip: Clip, t: number, playing: boolean) {
     const src = proxies.src(clip.mediaPath);
@@ -151,9 +176,17 @@
       el.src = src;
     }
     const expected = clip.in + (t - clip.start);
-    if (Math.abs(el.currentTime - expected) > (playing ? 0.15 : 0.02)) el.currentTime = expected;
+    const esMaster = playing && master?.el === el;
+    // Parados, exactitud; reproduciendo, solo se corrige un desvío real (un
+    // cambio de clip), nunca el vaivén normal del reloj del vídeo.
+    const tolerancia = !playing ? 0.02 : esMaster ? 0.5 : 0.25;
+    if (Math.abs(el.currentTime - expected) > tolerancia) el.currentTime = expected;
     if (playing) {
-      if (el.paused) el.play().catch(() => {});
+      if (el.paused) {
+        el.play()
+          .then(() => (playBloqueado = false))
+          .catch(() => (playBloqueado = true));
+      }
     } else if (!el.paused) {
       el.pause();
     }
@@ -197,10 +230,24 @@
   // Reproduciendo: bucle con requestAnimationFrame.
   $effect(() => {
     if (!project.playing) return;
-    const t0 = untrack(() => project.playhead);
-    const w0 = performance.now();
+    let t0 = untrack(() => project.playhead);
+    let w0 = performance.now();
+    // Arrancar ya, en el mismo turno que el clic de play: así la petición de
+    // reproducir cuenta como gesto del usuario y el sistema no la bloquea.
+    syncVideo(t0, true);
+    syncAudio(t0, true);
     let raf = requestAnimationFrame(function tick() {
-      const t = t0 + (performance.now() - w0) / 1000;
+      let t: number;
+      const m = master;
+      if (m && !m.el.paused && !m.el.seeking && m.el.readyState >= 2) {
+        // El vídeo manda; el temporizador se realinea por si hay que tirar de
+        // él en el siguiente hueco (transición, tramo sin vídeo).
+        t = m.clip.start + (m.el.currentTime - m.clip.in);
+        t0 = t;
+        w0 = performance.now();
+      } else {
+        t = t0 + (performance.now() - w0) / 1000;
+      }
       const end = project.duration;
       if (t >= end) {
         project.playhead = end;
@@ -267,6 +314,15 @@
       </div>
     {/if}
     <audio bind:this={audioEl} preload="auto"></audio>
+    {#if playBloqueado && project.playing}
+      <!-- El sistema no deja sonar sin un gesto: el clic de aquí lo es. -->
+      <button
+        class="absolute inset-x-0 bottom-3 mx-auto w-max rounded-full bg-black/75 px-3 py-1.5 text-xs text-white shadow-lg"
+        onclick={desbloquearSonido}
+      >
+        Haz clic para activar el sonido
+      </button>
+    {/if}
     {#if empty && viewW > 0}
       <!-- Dentro del lienzo, para que se vea la forma del formato elegido. -->
       <p

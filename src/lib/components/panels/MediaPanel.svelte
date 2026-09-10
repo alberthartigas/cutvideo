@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderOpen, Image as ImageIcon, Layers, Plus } from "@lucide/svelte";
+  import { FolderOpen, Image as ImageIcon, Layers, Music, Plus } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project } from "$lib/project.svelte";
   import { formatDuration } from "$lib/format";
@@ -27,6 +27,20 @@
 
   // Las tiras se preparan cuando cambia la lista de medios.
   $effect(() => void filmstrips.prepare(project.media));
+
+  /**
+   * Ancho respecto al alto del vídeo, ya contando la rotación: un móvil graba
+   * en apaisado y marca "girar 90", así que sin esto los verticales saldrían
+   * tumbados. Sin vídeo se usa un cuadrado.
+   */
+  function aspectoDe(item: MediaInfo): number {
+    const v = item.video;
+    if (!v || !v.width || !v.height) return 1;
+    const girado = v.rotation === 90 || v.rotation === 270;
+    const [w, h] = girado ? [v.height, v.width] : [v.width, v.height];
+    // Se acota para que un vídeo panorámico no ocupe él solo toda la fila.
+    return Math.min(2.2, Math.max(0.4, w / h));
+  }
 
   /** Fotograma que se enseña de cada vídeo; cambia al pasar el ratón. */
   let hover = $state<Record<string, number>>({});
@@ -71,12 +85,16 @@
     </label>
   {/if}
 
-  <ul class="space-y-1">
+  <!-- En rejilla y cada uno con su proporción: todos comparten altura, así que
+       los verticales salen estrechos y los apaisados anchos, uno al lado de
+       otro, y ninguno se deforma. -->
+  <ul class="flex flex-wrap gap-2">
     {#each project.media as item (item.path)}
       {@const tira = filmstrips.src(item.path)}
-      <li class="relative">
+      {@const prop = aspectoDe(item)}
+      <li class="group relative" style="width:{Math.round(thumb * prop)}px">
         <button
-          class="media-item pr-24"
+          class="media-item !p-1"
           class:active={selected?.path === item.path}
           onclick={() => (selected = item)}
           ondblclick={() => project.addClip(item)}
@@ -86,47 +104,54 @@
         >
           {#if item.video && !item.isImage}
             <div
-              class="tira mb-1.5 w-full shrink-0 rounded-md"
+              class="tira w-full shrink-0 rounded"
               style="height:{thumb}px; {tira ? frameStyle(tira, hover[item.path] ?? 0) : ''}"
               onpointermove={(e) => tira && barrer(e, item.path)}
               role="presentation"
             >
               {#if !tira}
-                <span class="flex h-full items-center justify-center text-[10px] text-muted">
-                  preparando vista previa…
+                <span class="flex h-full items-center justify-center text-center text-[9px] leading-tight text-muted">
+                  preparando<br />vista previa…
                 </span>
               {/if}
             </div>
+          {:else}
+            <div class="flex w-full items-center justify-center rounded bg-panel-2" style="height:{thumb}px">
+              <Music size={Math.min(28, thumb / 2)} class="text-muted" />
+            </div>
           {/if}
-          <span class="truncate text-sm">{item.fileName}</span>
-          <span class="text-[11px] text-muted">
+          <span class="mt-1 w-full truncate text-[11px]" title={item.fileName}>{item.fileName}</span>
+          <span class="w-full truncate text-[10px] text-muted">
             {formatDuration(item.durationSec)}
-            · {item.video ? `${item.video.width}×${item.video.height}` : "solo audio"}
+            {#if item.video}· {item.video.width}×{item.video.height}{/if}
           </span>
         </button>
-        <div class="absolute top-1/2 right-1.5 flex -translate-y-1/2 gap-0.5">
+        <!-- Los botones tapan la miniatura, así que solo salen al pasar por encima. -->
+        <div
+          class="absolute top-1 right-1 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+        >
           {#if item.video}
             <button
-              class="tool h-6 w-6 justify-center px-0"
+              class="tool h-6 w-6 justify-center bg-panel/90 px-0"
               title="Poner de fondo (pista F1, por detrás de la pantalla verde)"
               onclick={() => project.addBackground(item)}
             >
-              <ImageIcon size={13} />
+              <ImageIcon size={12} />
             </button>
             <button
-              class="tool h-6 w-6 justify-center px-0"
+              class="tool h-6 w-6 justify-center bg-panel/90 px-0"
               title="Poner encima como capa (O1/O2): imagen en imagen o recorte"
               onclick={() => project.addOverlay(item)}
             >
-              <Layers size={13} />
+              <Layers size={12} />
             </button>
           {/if}
           <button
-            class="tool h-6 w-6 justify-center px-0"
+            class="tool h-6 w-6 justify-center bg-panel/90 px-0"
             title="Añadir al timeline"
             onclick={() => project.addClip(item)}
           >
-            <Plus size={14} />
+            <Plus size={13} />
           </button>
         </div>
       </li>

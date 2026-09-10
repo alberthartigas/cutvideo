@@ -61,7 +61,9 @@
       el.src = src;
     }
     const expected = clip.in + (time - clip.start);
-    if (Math.abs(el.currentTime - expected) > (playing ? 0.15 : 0.02)) el.currentTime = expected;
+    // Reproduciendo, solo se corrige un desvío real: cada seek decodifica
+    // desde el keyframe anterior y con 0,15 s de margen se hacían a cada rato.
+    if (Math.abs(el.currentTime - expected) > (playing ? 0.35 : 0.02)) el.currentTime = expected;
     if (playing) {
       if (el.paused) el.play().catch(() => {});
     } else if (!el.paused) {

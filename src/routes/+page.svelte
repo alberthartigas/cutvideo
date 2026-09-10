@@ -87,9 +87,6 @@
       }
     }
     importing = false;
-    // Las copias de edición se preparan por detrás: sin ellas el preview va a
-    // trompicones con vídeos de móvil, que son de 6 megapíxeles.
-    proxies.prepare(project.media);
   }
 
   async function importFromDialog() {
@@ -209,6 +206,11 @@
         break;
     }
   }
+
+  // Las copias de edición se preparan por detrás siempre que cambie la lista
+  // de medios: al importar, pero también al abrir un proyecto guardado, que es
+  // donde antes se quedaban sin hacer y el preview seguía yendo a trompicones.
+  $effect(() => void proxies.prepare(project.media));
 
   onMount(() => {
     ffmpegVersion()
