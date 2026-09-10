@@ -18,6 +18,7 @@
   } from "@lucide/svelte";
   import { project, ZOOM_MAX, ZOOM_MIN, type Clip, type TrackKind } from "$lib/project.svelte";
   import { startDrag } from "$lib/drag";
+  import { drop } from "$lib/media-drop.svelte";
   import { ui } from "$lib/ui.svelte";
   import TimelineClip from "./TimelineClip.svelte";
 
@@ -242,7 +243,18 @@
         </div>
 
         {#each project.tracks as track (track.id)}
-          <div data-track={track.id} class="track" style="height:{TRACK_H[track.kind]}px" role="listbox" tabindex="-1" aria-label={track.name}>
+          <div
+            data-track={track.id}
+            class="track"
+            class:destino={drop.target?.trackId === track.id}
+            style="height:{TRACK_H[track.kind]}px"
+            role="listbox"
+            tabindex="-1"
+            aria-label={track.name}
+          >
+            {#if drop.target?.trackId === track.id}
+              <div class="guia" style="left:{drop.target.time * project.zoom}px"></div>
+            {/if}
             {#each stable(track.clips) as clip (clip.id)}
               <TimelineClip {clip} {track} />
             {/each}
@@ -261,6 +273,20 @@
 </section>
 
 <style>
+  /* Pista sobre la que se va a soltar, y línea de dónde caerá exactamente. */
+  .track.destino {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .guia {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    z-index: 5;
+    width: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    pointer-events: none;
+  }
   .ruler {
     position: relative;
     border-bottom: 1px solid var(--border);

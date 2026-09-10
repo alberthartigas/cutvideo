@@ -31,6 +31,7 @@
   import { session } from "$lib/session.svelte";
   import Splitter from "$lib/components/Splitter.svelte";
   import { startDrag } from "$lib/drag";
+  import { drop } from "$lib/media-drop.svelte";
 
   let timeline = $state<ReturnType<typeof Timeline>>();
   let selectedMedia = $state<MediaInfo | null>(null);
@@ -95,16 +96,30 @@
     if (e.button !== 0) return;
     startDrag(e, {
       onMove(_dx, _dy, ev) {
-        const over = timeline?.locate(ev.clientX, ev.clientY) !== null;
-        ghost = { x: ev.clientX, y: ev.clientY, name: item.fileName, over };
+        const hit = timeline?.locate(ev.clientX, ev.clientY) ?? null;
+        drop.target = hit;
+        ghost = { x: ev.clientX, y: ev.clientY, name: item.fileName, over: hit !== null };
       },
       onEnd(ev, moved) {
         ghost = null;
+        drop.target = null;
         if (!moved) return;
         const hit = timeline?.locate(ev.clientX, ev.clientY);
-        if (hit) project.addClip(item, hit.time);
+        if (hit) soltarMedio(item, hit);
       },
     });
+  }
+
+  /**
+   * Coloca el medio en la pista sobre la que se soltó. Antes iba siempre a la
+   * pista principal, así que soltar sobre el fondo o sobre una capa no hacía
+   * lo que uno espera al arrastrar algo hasta ahí.
+   */
+  function soltarMedio(item: MediaInfo, hit: { trackId: string; time: number }) {
+    if (hit.trackId === "f1") project.addBackground(item, hit.time);
+    else if (hit.trackId === "o1" || hit.trackId === "o2") project.addOverlay(item, hit.time, hit.trackId);
+    else if (hit.trackId === "p1") project.addPatch(item, hit.time);
+    else project.addClip(item, hit.time);
   }
 
   /** true si el evento de teclado debe ir a un campo de texto o a un diálogo, no a los atajos. */
