@@ -615,11 +615,35 @@ class ProjectStore {
   }
 
   /** Aplica la misma transición a todos los cortes de la pista principal. */
-  applyTransitionToAll(id: string | null, duration = DEFAULT_TRANSITION_DURATION) {
+  /**
+   * Pone una transición en todos los cortes.
+   *
+   * `pick` permite variar el tipo corte a corte en vez de repetir siempre el
+   * mismo. La duración se ajusta a lo que dura el clip más corto de los dos:
+   * un fundido de 0,35 s sobre un trozo de medio segundo se come el clip
+   * entero y lo que se ve es una papilla, no una transición.
+   */
+  applyTransitionToAll(
+    id: string | null,
+    duration = DEFAULT_TRANSITION_DURATION,
+    pick?: (index: number, clip: Clip, next: Clip) => string,
+  ) {
     const track = this.videoTrack;
     this.commit();
     track.clips.forEach((c, i) => {
-      c.transition = id && i < track.clips.length - 1 ? { id, duration: clamp(duration, TRANSITION_MIN, TRANSITION_MAX) } : undefined;
+      const next = track.clips[i + 1];
+      if (!id || !next) {
+        c.transition = undefined;
+        return;
+      }
+      const corto = Math.min(clipDuration(c), clipDuration(next));
+      // En clips muy cortos el corte seco se lee mejor que cualquier fundido.
+      if (corto < 0.7) {
+        c.transition = undefined;
+        return;
+      }
+      const dur = clamp(Math.min(duration, corto * 0.28), TRANSITION_MIN, TRANSITION_MAX);
+      c.transition = { id: pick?.(i, c, next) ?? id, duration: dur };
     });
     this.#relayout(track);
   }

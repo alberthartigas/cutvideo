@@ -70,6 +70,7 @@
         {#if r.transitions}<li>· {r.transitions} transiciones</li>{/if}
         {#if r.subtitles}<li>· {r.subtitles} subtítulos</li>{/if}
         {#if r.texts}<li>· {r.texts} textos</li>{/if}
+        {#if r.music}<li>· música: {r.music}</li>{/if}
         {#if r.layers.added}<li>· {r.layers.added} escenas encimadas</li>{/if}
         {#if r.layers.chromaed}<li>· {r.layers.chromaed} con la pantalla verde quitada</li>{/if}
         {#if r.layers.cutout}<li>· {r.layers.cutout} con la persona recortada</li>{/if}
@@ -139,12 +140,14 @@
         <label class="sub">
           <span>Tipo</span>
           <select class="field h-6 flex-1 text-xs" bind:value={o.transitionId}>
+            <option value="auto">Que elija la IA · variadas</option>
             {#each TRANSITIONS as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
           </select>
         </label>
       {/if}
 
       <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.syncToBeat} /> Cortar al ritmo de la música</label>
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.addMusic} /> Poner música libre si no hay</label>
       <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useLayers} /> Montar escenas encima</label>
       {#if o.useLayers}
         <p class="sub text-[10px] leading-snug">
@@ -167,6 +170,7 @@
         <label class="sub">
           <span>Estilo</span>
           <select class="field h-6 flex-1 text-xs" bind:value={o.subtitleStyle}>
+            <option value="auto">Que elija la IA</option>
             {#each SUBTITLE_STYLES as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
           </select>
         </label>

@@ -3,6 +3,7 @@ import { clipEnd, project, type Clip } from "$lib/project.svelte";
 import { buildCues, SUBTITLE_STYLES } from "$lib/subtitles/cues";
 import { TITLE_PRESETS } from "$lib/text/title-presets";
 import { transcribe, type TranscribeProvider } from "$lib/tauri/transcribe";
+import { probeMedia } from "$lib/tauri/media";
 import type { Word } from "$lib/subtitles/cues";
 import { DEFAULT_TEXT, type TextData } from "$lib/text/styles";
 import { getTransition } from "$lib/transitions/presets";
@@ -144,7 +145,10 @@ export interface AutoEditOptions {
   /** Deja este margen a cada lado para no comerse el principio de las palabras. */
   silencePad: number;
   addTransitions: boolean;
+  /** Id de transición, o "auto" para que varíe según el corte. */
   transitionId: string;
+  /** Busca y pone música libre si la pista de audio está vacía. */
+  addMusic: boolean;
   syncToBeat: boolean;
   addSubtitles: boolean;
   subtitleStyle: string;
@@ -166,13 +170,14 @@ export interface AutoEditOptions {
 export const DEFAULT_AUTOEDIT: AutoEditOptions = {
   removeSilences: true,
   silenceThreshold: -32,
-  silenceMin: 0.6,
+  silenceMin: 0.9,
   silencePad: 0.12,
   addTransitions: true,
-  transitionId: "fade",
+  transitionId: "auto",
+  addMusic: true,
   syncToBeat: true,
   addSubtitles: true,
-  subtitleStyle: "karaoke",
+  subtitleStyle: "auto",
   useLayers: true,
   addSpareScenes: true,
   maxSpareScenes: 2,
@@ -190,12 +195,71 @@ export interface AutoEditResult {
   transitions: number;
   subtitles: number;
   texts: number;
+  /** Título de la pista de música que se ha puesto, si se ha puesto alguna. */
+  music: string | null;
   /** Capas preparadas: croma, recortes, imagen en imagen y escenas añadidas. */
   layers: { chromaed: number; cutout: number; pip: number; added: number };
   bpm: number | null;
   plan: EditPlan | null;
   /** Avisos para enseñar al final (p. ej. que el ritmo no estaba claro). */
   notes: string[];
+}
+
+/**
+ * Lo que tiene que durar como mínimo lo que queda entre dos pausas quitadas.
+ *
+ * Sin esto, un vídeo hablado con muchas micropausas acaba troceado en decenas
+ * de fragmentos de medio segundo: el resultado no es un montaje ágil, es un
+ * tartamudeo. Un trozo por debajo de esto no se percibe como un corte.
+ */
+const MIN_TROZO = 1.2;
+
+/**
+ * Quita de la lista las pausas cuyo recorte dejaría un trozo demasiado corto.
+ * Se prefiere dejar una pausa de más antes que picar el vídeo.
+ */
+function sinTrocitos(ranges: [number, number][], total: number, minimo: number): [number, number][] {
+  const out: [number, number][] = [];
+  let finAnterior = 0;
+  for (const [s, e] of ranges) {
+    // Lo que se queda entre el corte anterior y este.
+    if (s - finAnterior < minimo) continue;
+    out.push([s, e]);
+    finAnterior = e;
+  }
+  // Y que no quede un rabo suelto al final.
+  const ultimo = out[out.length - 1];
+  if (ultimo && total - ultimo[1] < minimo) out.pop();
+  return out;
+}
+
+/** El estilo de subtítulo pedido, o uno con gancho si está en "auto". */
+function estiloSubtitulo(id: string) {
+  if (id !== "auto") return SUBTITLE_STYLES.find((s) => s.id === id) ?? SUBTITLE_STYLES[0];
+  return SUBTITLE_STYLES[0];
+}
+
+/**
+ * Elige la transición de cada corte cuando está en "auto".
+ *
+ * Poner el mismo fundido en los cincuenta cortes es lo que hace que un montaje
+ * parezca de plantilla. Aquí se reparte según lo que pide el corte: los clips
+ * largos aguantan una transición con presencia, los cortos piden algo rápido,
+ * y nunca se repite la misma dos veces seguidas.
+ */
+function transicionAuto(preferida: string | null): (i: number, c: Clip, next: Clip) => string {
+  const suaves = ["fade", "dissolve", "smooth"];
+  const conNervio = ["zoom", "flash", "slideleft", "blur", "wipe"];
+  let anterior = "";
+  return (i, c, next) => {
+    const corto = Math.min(clipEnd(c) - c.start, clipEnd(next) - next.start);
+    const banco = corto < 2 ? conNervio : i % 3 === 0 ? conNervio : suaves;
+    // La que sugiera la IA entra de vez en cuando, para dar carácter al vídeo.
+    const opciones = preferida && i % 4 === 0 ? [preferida, ...banco] : banco;
+    const elegida = opciones.find((t) => t !== anterior && getTransition(t)) ?? opciones[0];
+    anterior = elegida;
+    return elegida;
+  };
 }
 
 /** Mueve `t` al pulso más cercano si está a menos de `tolerance` segundos. */
@@ -226,6 +290,7 @@ export async function runAutoEdit(
     transitions: 0,
     subtitles: 0,
     texts: 0,
+    music: null,
     layers: { chromaed: 0, cutout: 0, pip: 0, added: 0 },
     bpm: null,
     plan: null,
@@ -257,10 +322,18 @@ export async function runAutoEdit(
     onStep("Buscando silencios…");
     const silences = await detectSilences(options.silenceThreshold, options.silenceMin);
     const total = project.duration;
-    const ranges = silences
+    const crudos = silences
       .map(({ start, end }): [number, number] => [start + options.silencePad, end - options.silencePad])
       .filter(([s, e]) => e - s > 0.2)
-      .map(([s, e]): [number, number] => [Math.max(0, s), Math.min(total, e)]);
+      .map(([s, e]): [number, number] => [Math.max(0, s), Math.min(total, e)])
+      .sort((a, b) => a[0] - b[0]);
+    const ranges = sinTrocitos(crudos, total, MIN_TROZO);
+    const descartados = crudos.length - ranges.length;
+    if (descartados > 0) {
+      result.notes.push(
+        `Se han dejado ${descartados} pausas sin quitar: cortarlas habría dejado trozos de menos de ${MIN_TROZO} s, que no se leen como un corte sino como un parpadeo.`,
+      );
+    }
     if (ranges.length) {
       onStep(`Quitando ${ranges.length} silencios…`);
       result.removedSeconds = project.removeRanges(ranges);
@@ -292,9 +365,13 @@ export async function runAutoEdit(
   // 4) Transiciones en todos los cortes.
   if (options.addTransitions && project.videoTrack.clips.length > 1) {
     onStep("Poniendo transiciones…");
-    const id = getTransition(options.transitionId) ? options.transitionId : "fade";
-    project.applyTransitionToAll(id, 0.35);
-    result.transitions = project.videoTrack.clips.length - 1;
+    if (options.transitionId === "auto") {
+      project.applyTransitionToAll("fade", 0.35, transicionAuto(null));
+    } else {
+      const id = getTransition(options.transitionId) ? options.transitionId : "fade";
+      project.applyTransitionToAll(id, 0.35);
+    }
+    result.transitions = project.videoTrack.clips.filter((c) => c.transition).length;
   }
 
   // 5) Capas superpuestas: croma, recorte de personas o imagen en imagen.
@@ -332,7 +409,7 @@ export async function runAutoEdit(
     transcriptText = transcript.text;
     lastWords = transcript.words;
     if (transcript.words.length) {
-      const style = SUBTITLE_STYLES.find((s) => s.id === options.subtitleStyle) ?? SUBTITLE_STYLES[0];
+      const style = estiloSubtitulo(options.subtitleStyle);
       const cues = buildCues(transcript.words, style.cue);
       project.setSubtitles(cues, style.data);
       result.subtitles = cues.length;
@@ -376,8 +453,49 @@ export async function runAutoEdit(
         const at = Math.min(Math.max(0, h.time), Math.max(0, videoEnd - 1));
         if (h.text.trim()) makeText(h.text.trim(), at, { ...preset.data, fontSize: 0.07, y: 0.2 }, 2);
       }
-      if (plan.transition && options.addTransitions && getTransition(plan.transition)) {
-        project.applyTransitionToAll(plan.transition, 0.35);
+      // Con la transición en "auto" la IA aporta su propuesta a la mezcla,
+      // pero sin que se repita en los cincuenta cortes.
+      if (options.addTransitions && project.videoTrack.clips.length > 1) {
+        if (options.transitionId === "auto") {
+          project.applyTransitionToAll("fade", 0.35, transicionAuto(plan.transition || null));
+          result.transitions = project.videoTrack.clips.filter((c) => c.transition).length;
+        } else if (plan.transition && getTransition(plan.transition) && options.transitionId === plan.transition) {
+          project.applyTransitionToAll(plan.transition, 0.35);
+        }
+      }
+
+      // Si el estilo estaba en "auto", manda el que proponga la IA.
+      if (options.subtitleStyle === "auto" && lastWords.length && plan.subtitleStyle) {
+        const style = SUBTITLE_STYLES.find((s) => s.id === plan.subtitleStyle);
+        if (style) {
+          const cues = buildCues(lastWords, style.cue);
+          project.setSubtitles(cues, style.data);
+          result.subtitles = cues.length;
+        }
+      }
+
+      // Música libre, si no había ninguna puesta.
+      if (options.addMusic && project.audioTrack.clips.length === 0 && plan.musicQuery) {
+        onStep("Buscando música que pegue…");
+        try {
+          const pistas = await suggestFreeMusic(plan.musicQuery);
+          const elegida = pistas.find((t) => t.audioUrl) ?? pistas[0];
+          if (elegida) {
+            onStep(`Descargando «${elegida.title}»…`);
+            const ruta = await downloadTrack(
+              elegida.audioUrl ?? elegida.url,
+              `${elegida.title} - ${elegida.creator}`,
+            );
+            const info = await probeMedia(ruta);
+            project.addMedia(info);
+            project.addClip(info);
+            result.music = `${elegida.title} · ${elegida.creator} · ${elegida.license}`;
+          } else {
+            result.notes.push("No se ha encontrado música libre que encaje con el vídeo.");
+          }
+        } catch (e) {
+          result.notes.push(`No se pudo poner música: ${e}`);
+        }
       }
     } catch (e) {
       result.notes.push(`No se pudo generar el plan con IA: ${e}`);

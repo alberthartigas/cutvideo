@@ -16,7 +16,12 @@ struct Provider {
     /// Clave guardada en el llavero (Groq comparte la de los subtítulos).
     secret: &'static str,
     url: &'static str,
+    /// Modelo por defecto. Puede quedarse obsoleto: los servicios retiran
+    /// modelos cada pocos meses, así que antes de usarlo se comprueba contra
+    /// la lista real del servicio (ver `resolve_model`).
     model: &'static str,
+    /// Modelos preferidos, del mejor al más básico, si el de arriba ya no está.
+    fallbacks: &'static [&'static str],
 }
 
 const PROVIDERS: &[Provider] = &[
@@ -26,6 +31,12 @@ const PROVIDERS: &[Provider] = &[
         secret: "groq",
         url: "https://api.groq.com/openai/v1/chat/completions",
         model: "llama-3.3-70b-versatile",
+        fallbacks: &[
+            "moonshotai/kimi-k2-instruct",
+            "openai/gpt-oss-120b",
+            "qwen/qwen3-32b",
+            "llama-3.1-8b-instant",
+        ],
     },
     Provider {
         id: "gemini",
@@ -33,6 +44,7 @@ const PROVIDERS: &[Provider] = &[
         secret: "gemini",
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         model: "gemini-2.5-flash",
+        fallbacks: &["gemini-2.5-flash-lite", "gemini-2.0-flash"],
     },
     Provider {
         id: "openai",
@@ -40,6 +52,7 @@ const PROVIDERS: &[Provider] = &[
         secret: "openai",
         url: "https://api.openai.com/v1/chat/completions",
         model: "gpt-4o-mini",
+        fallbacks: &["gpt-4.1-mini", "gpt-4o"],
     },
 ];
 
@@ -236,9 +249,65 @@ struct ChatMessage {
     content: Option<String>,
 }
 
+/// Modelos ya resueltos en esta sesión, para no preguntar en cada edición.
+static MODELOS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    std::sync::OnceLock::new();
+
+/// Modelos que el servicio ofrece pero no sirven para escribir un plan.
+fn es_de_texto(id: &str) -> bool {
+    const FUERA: &[&str] = &[
+        "whisper", "tts", "embed", "guard", "vision", "image", "audio", "moderation", "rerank",
+        "dall-e", "sora", "veo", "imagen", "transcribe", "realtime", "search",
+    ];
+    let bajo = id.to_lowercase();
+    !FUERA.iter().any(|f| bajo.contains(f))
+}
+
+/// Elige un modelo que exista de verdad.
+///
+/// Los servicios retiran modelos cada pocos meses y la app se queda con un
+/// nombre muerto: eso es lo que pasó con `llama-3.3-70b-versatile`. En vez de
+/// cambiar un nombre fijo por otro que caducará igual, se pregunta al servicio
+/// qué tiene y se coge el primero de la lista de preferencias que siga vivo.
+async fn resolve_model(p: &Provider, key: &str) -> String {
+    let cache = MODELOS.get_or_init(Default::default);
+    if let Some(m) = cache.lock().unwrap().get(p.id) {
+        return m.clone();
+    }
+    let elegido = modelo_disponible(p, key).await.unwrap_or_else(|| p.model.to_string());
+    cache.lock().unwrap().insert(p.id.to_string(), elegido.clone());
+    elegido
+}
+
+async fn modelo_disponible(p: &Provider, key: &str) -> Option<String> {
+    let url = format!("{}/models", p.url.strip_suffix("/chat/completions")?);
+    let response = http_client().ok()?.get(url).bearer_auth(key).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let cuerpo: serde_json::Value = response.json().await.ok()?;
+    let disponibles: Vec<String> = cuerpo
+        .get("data")?
+        .as_array()?
+        .iter()
+        .filter_map(|m| m.get("id")?.as_str().map(str::to_string))
+        .collect();
+    if disponibles.is_empty() {
+        return None;
+    }
+    // Primero lo que hayamos elegido a mano, y si nada de eso está, cualquier
+    // modelo de texto: mejor uno que no conocemos que un error.
+    std::iter::once(p.model)
+        .chain(p.fallbacks.iter().copied())
+        .find(|m| disponibles.iter().any(|d| d == m))
+        .map(str::to_string)
+        .or_else(|| disponibles.into_iter().find(|d| es_de_texto(d)))
+}
+
 async fn plan_openai_compatible(p: &Provider, key: &str, prompt: &str) -> Result<EditPlan, String> {
+    let modelo = resolve_model(p, key).await;
     let body = serde_json::json!({
-        "model": p.model,
+        "model": modelo,
         "temperature": 0.7,
         // Modo JSON: el modelo devuelve un objeto y no hace falta rescatarlo del texto.
         "response_format": { "type": "json_object" },
