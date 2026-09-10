@@ -72,6 +72,32 @@ pub struct EditPlanRequest {
     /// "groq" (gratis), "gemini" (gratis), "openai" o "anthropic".
     #[serde(default = "default_provider")]
     pub provider: String,
+    /// El material entero, clip a clip, para que elija con contexto.
+    #[serde(default)]
+    pub material: Vec<MaterialClip>,
+    /// A cuántos segundos hay que dejar el vídeo.
+    #[serde(default)]
+    pub target_seconds: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialClip {
+    pub index: usize,
+    pub name: String,
+    pub duration: f64,
+    pub recorded_at: Option<String>,
+    pub candidates: Vec<Candidate>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Candidate {
+    #[serde(rename = "in")]
+    pub in_sec: f64,
+    pub out: f64,
+    pub score: f64,
+    pub words: String,
 }
 
 fn default_provider() -> String {
@@ -84,6 +110,17 @@ pub struct Highlight {
     /// Instante del vídeo (s) donde aparece el texto.
     pub time: f64,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pick {
+    pub clip: usize,
+    #[serde(rename = "in")]
+    pub in_sec: f64,
+    pub out: f64,
+    #[serde(default)]
+    pub why: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +140,9 @@ pub struct EditPlan {
     pub music_query: String,
     /// Una frase explicando el criterio, para enseñarla en la UI.
     pub reasoning: String,
+    /// Momentos elegidos del material (índice de clip y tramo dentro del archivo).
+    #[serde(default)]
+    pub picks: Vec<Pick>,
 }
 
 #[derive(Deserialize)]
@@ -137,7 +177,7 @@ fn schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "additionalProperties": false,
-        "required": ["title", "titlePreset", "highlights", "subtitleStyle", "transition", "musicQuery", "reasoning"],
+        "required": ["title", "titlePreset", "highlights", "subtitleStyle", "transition", "musicQuery", "reasoning", "picks"],
         "properties": {
             "title": { "type": "string", "description": "Título de apertura, máximo 6 palabras" },
             "titlePreset": {
@@ -146,7 +186,7 @@ fn schema() -> serde_json::Value {
             },
             "highlights": {
                 "type": "array",
-                "maxItems": 6,
+                "maxItems": 4,
                 "items": {
                     "type": "object",
                     "additionalProperties": false,
@@ -159,11 +199,27 @@ fn schema() -> serde_json::Value {
             },
             "subtitleStyle": {
                 "type": "string",
-                "enum": ["classic", "karaoke", "wordbox", "wordpop", "wordbounce", "oneword", "box", "readable", "neon", "typewriter", "minimal", "elegant"]
+                "enum": ["discreto", "viral", "hormozi", "golpe", "beast", "oneword", "sube", "karaoke", "neon", "classic", "box", "readable", "typewriter", "minimal", "elegant"]
             },
             "transition": {
                 "type": "string",
                 "enum": ["fade", "dissolve", "fadeblack", "flash", "slideleft", "slideup", "smooth", "wipe", "zoom", "blur", "circle", "pixel", "squeeze"]
+            },
+            "picks": {
+                "type": "array",
+                "maxItems": 24,
+                "description": "Momentos del material que entran en el montaje, en orden cronológico",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["clip", "in", "out", "why"],
+                    "properties": {
+                        "clip": { "type": "integer", "description": "Índice del clip en el material" },
+                        "in": { "type": "number", "description": "Segundo de entrada dentro del archivo" },
+                        "out": { "type": "number", "description": "Segundo de salida dentro del archivo" },
+                        "why": { "type": "string", "description": "Por qué entra, en pocas palabras" }
+                    }
+                }
             },
             "musicQuery": { "type": "string", "description": "Búsqueda en inglés para música libre que pegue con el vídeo" },
             "reasoning": { "type": "string", "description": "Una frase explicando las decisiones" }
@@ -177,8 +233,10 @@ fn build_prompt(request: &EditPlanRequest, transcript: &str) -> String {
         "Eres el asistente de edición de CutVideo, un editor de vídeo. Propón un plan de edición para este proyecto.\n\n\
          Duración: {:.1} s\nClips: {}\nTempo de la música: {}\nEstilo pedido: {}\nIdioma de los textos: {}\n\n\
          Transcripción del audio:\n{}\n\n\
+         {material}\
          Los textos deben estar en el idioma indicado, ser cortos (caben en pantalla) y no repetir literalmente los \
-         subtítulos. Los momentos destacados deben caer dentro de la duración del vídeo y repartirse a lo largo de él. \
+         subtítulos. Pocos rótulos (máximo 4), separados entre sí y nunca justo en un cambio de plano. \
+         El estilo de subtítulo por defecto es \"discreto\"; solo propón otro si el estilo pedido es muy enérgico. \
          Si no hay transcripción, propón textos genéricos que encajen con el estilo.",
         request.duration,
         request.clip_count,
@@ -186,7 +244,44 @@ fn build_prompt(request: &EditPlanRequest, transcript: &str) -> String {
         request.style,
         request.language,
         if transcript.trim().is_empty() { "(sin transcripción)" } else { transcript.trim() },
+        material = describe_material(request),
     )
+}
+
+/// El material clip a clip, para que la IA elija los momentos con contexto.
+fn describe_material(request: &EditPlanRequest) -> String {
+    if request.material.is_empty() {
+        return String::new();
+    }
+    let objetivo = request
+        .target_seconds
+        .map(|t| format!("{t:.0} s"))
+        .unwrap_or_else(|| "lo que pida el estilo".into());
+    let mut out = format!(
+        "MATERIAL DISPONIBLE (elige los momentos que entran, en `picks`, hasta sumar unos {objetivo}; \
+         manténlos en orden cronológico salvo que el estilo pida otra cosa; cada tramo entre 2 y 5 s; \
+         busca el patrón de lo que se cuenta y quédate con lo que lo sostiene, no solo con lo más ruidoso):\n"
+    );
+    for m in &request.material {
+        out.push_str(&format!(
+            "- Clip {} «{}», {:.1} s{}\n",
+            m.index,
+            m.name,
+            m.duration,
+            m.recorded_at.as_deref().map(|d| format!(", grabado {d}")).unwrap_or_default()
+        ));
+        for c in &m.candidates {
+            out.push_str(&format!(
+                "    · {:.1}–{:.1} s (interés {:.2}){}\n",
+                c.in_sec,
+                c.out,
+                c.score,
+                if c.words.trim().is_empty() { String::new() } else { format!(": \"{}\"", c.words.trim()) }
+            ));
+        }
+    }
+    out.push('\n');
+    out
 }
 
 /// Recorta la transcripción: con el principio y el final basta para decidir.
@@ -427,4 +522,83 @@ pub async fn ai_edit_plan(request: EditPlanRequest) -> Result<EditPlan, String> 
         format!("Falta la clave de API de {}. Añádela en Ajustes → Claves de API.", p.name)
     })?;
     plan_openai_compatible(p, &key, &prompt).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peticion() -> EditPlanRequest {
+        EditPlanRequest {
+            transcript: "hola".into(),
+            duration: 30.0,
+            clip_count: 2,
+            bpm: None,
+            style: "viaje".into(),
+            language: "es".into(),
+            provider: "groq".into(),
+            material: vec![
+                MaterialClip {
+                    index: 0,
+                    name: "playa.mov".into(),
+                    duration: 12.0,
+                    recorded_at: Some("2026-08-01T10:00:00Z".into()),
+                    candidates: vec![Candidate { in_sec: 1.0, out: 4.0, score: 0.91, words: "qué bonito".into() }],
+                },
+                MaterialClip { index: 1, name: "cena.mov".into(), duration: 18.0, recorded_at: None, candidates: vec![] },
+            ],
+            target_seconds: Some(20.0),
+        }
+    }
+
+    #[test]
+    fn el_prompt_describe_cada_clip_con_sus_tramos() {
+        let texto = build_prompt(&peticion(), "hola");
+        assert!(texto.contains("Clip 0 «playa.mov», 12.0 s, grabado 2026-08-01T10:00:00Z"));
+        assert!(texto.contains("1.0–4.0 s (interés 0.91): \"qué bonito\""));
+        assert!(texto.contains("Clip 1 «cena.mov», 18.0 s\n"));
+        assert!(texto.contains("unos 20 s"));
+    }
+
+    #[test]
+    fn sin_material_el_prompt_no_pide_momentos() {
+        let mut r = peticion();
+        r.material.clear();
+        assert!(!build_prompt(&r, "hola").contains("MATERIAL DISPONIBLE"));
+    }
+
+    #[test]
+    fn un_plan_sin_picks_sigue_valiendo() {
+        let plan: EditPlan = serde_json::from_str(
+            r#"{"title":"t","titlePreset":"pop","highlights":[],"subtitleStyle":"discreto","transition":"fade","musicQuery":"q","reasoning":"r"}"#,
+        )
+        .unwrap();
+        assert!(plan.picks.is_empty());
+        let plan: EditPlan = serde_json::from_str(
+            r#"{"title":"t","titlePreset":"pop","highlights":[],"subtitleStyle":"discreto","transition":"fade","musicQuery":"q","reasoning":"r","picks":[{"clip":1,"in":2.5,"out":5,"why":"risa"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.picks[0].clip, 1);
+        assert_eq!(plan.picks[0].in_sec, 2.5);
+    }
+
+    #[test]
+    fn el_esquema_exige_todas_sus_propiedades() {
+        // Los modos estrictos (OpenAI) rechazan esquemas con propiedades fuera de `required`.
+        fn comprobar(obj: &serde_json::Value) {
+            if let Some(props) = obj.get("properties").and_then(|p| p.as_object()) {
+                let req: Vec<&str> = obj["required"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+                for k in props.keys() {
+                    assert!(req.contains(&k.as_str()), "{k} no está en required");
+                }
+                for v in props.values() {
+                    comprobar(v);
+                    if let Some(items) = v.get("items") {
+                        comprobar(items);
+                    }
+                }
+            }
+        }
+        comprobar(&schema());
+    }
 }

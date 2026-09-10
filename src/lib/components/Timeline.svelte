@@ -87,12 +87,46 @@
     return Math.max(0, (clientX - rect.left) / project.zoom);
   }
 
+  /** Cuadro de selección que se dibuja al arrastrar por una zona vacía de las pistas. */
+  let marco = $state<{ x: number; y: number; w: number; h: number } | null>(null);
+
   function onContentPointerDown(e: PointerEvent) {
     if (e.button !== 0) return;
     project.playing = false;
-    project.selectedId = null;
-    project.setPlayhead(timeAt(e.clientX));
-    startDrag(e, { onMove: (_dx, _dy, ev) => project.setPlayhead(timeAt(ev.clientX)) });
+    // En la regla se arrastra el playhead; en las pistas, un clic vacío también
+    // lo mueve, pero arrastrar dibuja un cuadro y marca todo lo que abarca.
+    const enRegla = !!(e.target as HTMLElement).closest(".ruler");
+    const sumar = e.shiftKey || e.metaKey || e.ctrlKey;
+    if (!sumar) project.selectedId = null;
+    if (enRegla || !content) {
+      project.setPlayhead(timeAt(e.clientX));
+      startDrag(e, { onMove: (_dx, _dy, ev) => project.setPlayhead(timeAt(ev.clientX)) });
+      return;
+    }
+    const previos = sumar ? [...project.selectedIds] : [];
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const caja = content;
+    startDrag(e, {
+      onMove(_dx, _dy, ev) {
+        const rect = caja.getBoundingClientRect();
+        const izq = Math.min(x0, ev.clientX);
+        const der = Math.max(x0, ev.clientX);
+        const arriba = Math.min(y0, ev.clientY);
+        const abajo = Math.max(y0, ev.clientY);
+        marco = { x: izq - rect.left, y: arriba - rect.top, w: der - izq, h: abajo - arriba };
+        const dentro: string[] = [];
+        for (const el of caja.querySelectorAll<HTMLElement>("[data-clip]")) {
+          const r = el.getBoundingClientRect();
+          if (r.left < der && r.right > izq && r.top < abajo && r.bottom > arriba) dentro.push(el.dataset.clip!);
+        }
+        project.setSelection([...previos, ...dentro]);
+      },
+      onEnd(ev, moved) {
+        marco = null;
+        if (!moved) project.setPlayhead(timeAt(ev.clientX));
+      },
+    });
   }
 
   // Mantiene el playhead a la vista: en reproducción salta de página; si no, el mínimo scroll.
@@ -281,6 +315,9 @@
           {/each}
         </div>
 
+        {#if marco}
+          <div class="marco" style="left:{marco.x}px; top:{marco.y}px; width:{marco.w}px; height:{marco.h}px"></div>
+        {/if}
         {#each visibles as track (track.id)}
           <div
             data-track={track.id}
@@ -375,5 +412,12 @@
     border-top: 8px solid var(--accent);
     border-right: 5.5px solid transparent;
     border-left: 5.5px solid transparent;
+  }
+  .marco {
+    position: absolute;
+    z-index: 20;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    pointer-events: none;
   }
 </style>

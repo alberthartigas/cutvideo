@@ -26,7 +26,7 @@ pub struct Proxy {
     pub path: String,
 }
 
-fn proxies_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn proxies_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_data_dir()
@@ -38,7 +38,7 @@ fn proxies_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// Nombre estable a partir de la ruta, el tamaño y la fecha: si el archivo
 /// cambia, el proxy se regenera solo en vez de servir uno viejo.
-fn nombre_de(path: &str) -> String {
+pub(crate) fn nombre_de(path: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut h);
@@ -127,6 +127,19 @@ pub async fn make_proxy(app: AppHandle, path: String) -> Result<String, String> 
 /// vistazo sin que el archivo pese.
 pub const FOTOGRAMAS_TIRA: u32 = 20;
 
+/// Un fotograma cada `duración / 20` segundos, repartidos por todo el vídeo.
+///
+/// `thumbnail=20` no valía: coge uno de cada veinte fotogramas, así que la
+/// tira solo cubría los primeros segundos y el resto salía en negro. Se pide
+/// medio fotograma de más y se corta a 20 para que el redondeo nunca deje un
+/// hueco al final.
+fn filtro_tira(duracion_s: f64) -> String {
+    let fps = (FOTOGRAMAS_TIRA as f64 + 0.5) / duracion_s.max(0.1);
+    format!(
+        "fps={fps:.6},select='lt(n\\,{FOTOGRAMAS_TIRA})',scale=160:-2,tile={FOTOGRAMAS_TIRA}x1"
+    )
+}
+
 /// Tira de fotogramas en una sola imagen, para poder recorrer el vídeo pasando
 /// el ratón por encima sin decodificar nada en ese momento.
 #[tauri::command]
@@ -140,16 +153,20 @@ pub async fn make_filmstrip(app: AppHandle, path: String) -> Result<String, Stri
         return Ok(destino.to_string_lossy().into_owned());
     }
     let temporal = destino.with_extension("parcial.jpg");
-    // `thumbnail` elige el fotograma más representativo de cada tramo en vez de
-    // uno al azar, que a veces cae en un fundido o en un desenfoque.
-    let filtro = format!(
-        "thumbnail={FOTOGRAMAS_TIRA},scale=160:-2,tile={FOTOGRAMAS_TIRA}x1"
-    );
-    let args = [
-        "-v", "error", "-y", "-i", &path,
+    let duracion = crate::media::probe(&app, &path).await?.duration_sec.max(0.1);
+    let filtro = filtro_tira(duracion);
+    // En vídeos largos solo se decodifican los fotogramas clave: hay uno cada
+    // uno o dos segundos y así una hora de 4K se recorre en segundos. En los
+    // cortos hacen falta todos, o la tira repetiría el mismo fotograma.
+    let mut args = vec!["-v", "error", "-y"];
+    if duracion > 60.0 {
+        args.extend(["-skip_frame", "nokey"]);
+    }
+    args.extend([
+        "-i", &path,
         "-vf", &filtro, "-frames:v", "1", "-q:v", "5",
         temporal.to_str().unwrap_or_default(),
-    ];
+    ]);
     let (mut rx, _child) = app
         .shell()
         .sidecar("ffmpeg")
@@ -185,4 +202,19 @@ pub fn clear_proxies(app: AppHandle) -> Result<u64, String> {
         let _ = std::fs::remove_file(entry.path());
     }
     Ok(liberado)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_tira_reparte_los_fotogramas_por_toda_la_duracion() {
+        assert_eq!(
+            filtro_tira(4.0),
+            "fps=5.125000,select='lt(n\\,20)',scale=160:-2,tile=20x1"
+        );
+        // Un vídeo larguísimo pide una fracción de fotograma por segundo, no cero.
+        assert!(filtro_tira(3600.0).starts_with("fps=0.005694"));
+    }
 }

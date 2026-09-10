@@ -11,6 +11,7 @@ mod proxies;
 mod secrets;
 mod sfx;
 mod transcribe;
+mod waveforms;
 
 use tauri::Manager;
 
@@ -81,6 +82,7 @@ pub fn run() {
             proxies::proxy_for,
             proxies::make_proxy,
             proxies::make_filmstrip,
+            waveforms::make_waveform,
             proxies::clear_proxies,
             sfx::builtin_sfx,
             projects::projects_storage,

@@ -126,25 +126,6 @@ export interface LayerPlan {
   added: number;
 }
 
-/** Sitios repartidos por el vídeo donde meter escenas de relleno. */
-function huecos(duration: number, cuantos: number, beats: number[]): number[] {
-  const out: number[] = [];
-  for (let i = 1; i <= cuantos; i++) {
-    const at = (duration * i) / (cuantos + 1);
-    let mejor = at;
-    let dist = 0.6;
-    for (const b of beats) {
-      const d = Math.abs(b - at);
-      if (d < dist) {
-        dist = d;
-        mejor = b;
-      }
-    }
-    out.push(Math.max(0, mejor));
-  }
-  return out;
-}
-
 /**
  * Prepara las capas superpuestas del proyecto: croma o recorte donde toca,
  * imagen en imagen para el resto y, si se pide, sube al montaje las escenas
@@ -158,20 +139,26 @@ export async function autoLayers(
   const videoEnd = project.videoTrack.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
 
   // 1) Escenas de sobra: las que están en medios pero no en ninguna pista.
+  // Van al final de la pista principal, en orden de grabación y con
+  // transición: encimarlas quedaba raro y el sonido de las dos se pisaba.
   if (opts.addSpare && videoEnd >= 2.5) {
     const usadas = new Set(project.tracks.flatMap((t) => t.clips.map((c) => c.mediaPath)));
-    const sobran = project.media.filter((m: MediaInfo) => m.video && !m.isImage && !usadas.has(m.path));
+    const sobran = project.media
+      .filter((m: MediaInfo) => m.video && !m.isImage && !usadas.has(m.path))
+      .sort((a, b) => (a.recordedAt ?? "").localeCompare(b.recordedAt ?? ""));
     const cuantos = Math.min(opts.maxSpare, sobran.length);
     if (cuantos > 0) {
-      onStep(`Montando ${cuantos} escena${cuantos > 1 ? "s" : ""} encima…`);
-      const sitios = huecos(videoEnd, cuantos, opts.beats);
-      for (const [i, info] of sobran.slice(0, cuantos).entries()) {
-        const at = Math.min(sitios[i], Math.max(0, videoEnd - 1.5));
-        const clip = project.addOverlay(info, at);
+      onStep(`Añadiendo ${cuantos} escena${cuantos > 1 ? "s" : ""} al final…`);
+      for (const info of sobran.slice(0, cuantos)) {
+        const anterior = project.videoTrack.clips.at(-1);
+        const clip = project.addClip(info);
         if (!clip) continue;
-        // Cada escena dura lo que quepa, sin pasar de 3 s ni del final del vídeo.
-        const largo = Math.min(3, info.durationSec, Math.max(1, videoEnd - clip.start));
-        project.trimOut(clip.id, clip.in + largo);
+        // Cada escena aporta su tramo central, de 3 s como mucho.
+        const largo = Math.min(3, info.durationSec);
+        const desde = Math.max(0, (info.durationSec - largo) / 2);
+        project.trimIn(clip.id, desde, false);
+        project.trimOut(clip.id, desde + largo);
+        if (anterior) project.setTransition(anterior.id, "fade", 0.35);
         plan.added++;
       }
     }

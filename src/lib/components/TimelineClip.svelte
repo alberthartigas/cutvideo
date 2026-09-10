@@ -4,6 +4,7 @@
   import { openMenu } from "$lib/context-menu.svelte";
   import { drop } from "$lib/media-drop.svelte";
   import { AudioLines, Link2, Scissors, Trash2, Unlink } from "@lucide/svelte";
+  import ClipArt from "./ClipArt.svelte";
 
   /** Acciones básicas sobre este clip, para quien corrige a mano la autoedición. */
   function menuClip(e: MouseEvent) {
@@ -172,6 +173,7 @@
   style="left:{left}px; width:{width}px; {dragOffset !== null
     ? `transform:translateX(${dragOffset}px)`
     : ''}"
+  data-clip={clip.id}
   role="option"
   aria-selected={selected}
   tabindex="-1"
@@ -180,6 +182,9 @@
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="handle left" onpointerdown={(e) => onHandleDown(e, "in")}></div>
+  {#if clip.kind !== "text"}
+    <ClipArt {clip} {width} />
+  {/if}
   <div class="body">
     <span class="name">{clip.muted ? "🔇 " : ""}{clip.name}</span>
     <span class="dur">{formatDuration(clipDuration(clip))}</span>
@@ -261,6 +266,27 @@
   .dur {
     font-size: 10px;
     color: var(--muted);
+  }
+  /* Encima de fotogramas y ondas, el nombre va en una pastilla para leerse. */
+  .clip.video .body,
+  .clip.audio .body {
+    justify-content: flex-start;
+    padding: 3px 10px;
+  }
+  .clip.video .name,
+  .clip.video .dur,
+  .clip.audio .name,
+  .clip.audio .dur {
+    width: fit-content;
+    max-width: 100%;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+  }
+  .clip.video .dur,
+  .clip.audio .dur {
+    color: rgba(255, 255, 255, 0.75);
   }
   /* Las pistas de audio y texto son más bajas: nombre y duración en una sola línea. */
   .clip.audio .body,

@@ -165,6 +165,12 @@ class ProjectStore {
       this.#primary = id;
     }
   }
+  /** Deja marcados exactamente estos clips (el último es el principal). */
+  setSelection(ids: string[]) {
+    const unicos = [...new Set(ids)];
+    this.selectedIds = unicos;
+    this.#primary = unicos[unicos.length - 1] ?? null;
+  }
   selectAll() {
     const ids = this.tracks.flatMap((t) => t.clips.map((c) => c.id));
     this.selectedIds = ids;

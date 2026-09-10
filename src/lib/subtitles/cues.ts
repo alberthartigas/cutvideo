@@ -153,6 +153,32 @@ const base: TextData = {
  */
 export const SUBTITLE_STYLES: SubtitleStyle[] = [
   {
+    // El de serie. Los estilos de redes son ruidosos a propósito; para un
+    // vídeo que quiere que se vea la imagen, mejor una frase pequeña abajo que
+    // entra y sale deslizándose y no se queda estorbando.
+    id: "discreto",
+    name: "Discreto",
+    hint: "Pequeño y abajo; la frase entra y sale deslizándose",
+    data: {
+      ...base,
+      fontSize: 0.038,
+      y: 0.86,
+      maxWidth: 0.86,
+      stroke: 0.035,
+      strokeColor: "#000000",
+      shadow: true,
+      box: true,
+      boxColor: "#000000",
+      boxOpacity: 0.35,
+      animIn: "slide",
+      animOut: "slide",
+      inDur: 0.22,
+      outDur: 0.18,
+      emphasis: "none",
+    },
+    cue: { maxWords: 7, maxChars: 30, maxLines: 2 },
+  },
+  {
     id: "viral",
     name: "Viral",
     hint: "La palabra que se dice crece y se pinta de amarillo",

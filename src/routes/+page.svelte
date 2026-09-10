@@ -36,6 +36,7 @@
   import { drop } from "$lib/media-drop.svelte";
   import { isOverlayTrack } from "$lib/layers";
   import { proxies } from "$lib/proxies.svelte";
+  import { waveforms } from "$lib/waveforms.svelte";
 
   let timeline = $state<ReturnType<typeof Timeline>>();
   let selectedMedia = $state<MediaInfo | null>(null);
@@ -219,6 +220,7 @@
   // de medios: al importar, pero también al abrir un proyecto guardado, que es
   // donde antes se quedaban sin hacer y el preview seguía yendo a trompicones.
   $effect(() => void proxies.prepare(project.media));
+  $effect(() => void waveforms.prepare(project.media));
 
   /**
    * El menú nativo del WebView solo trae "Recargar" y despista; se corta en

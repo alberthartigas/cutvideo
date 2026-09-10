@@ -79,7 +79,7 @@
         {#if r.subtitles}<li>· {r.subtitles} subtítulos</li>{/if}
         {#if r.texts}<li>· {r.texts} textos</li>{/if}
         {#if r.music}<li>· música: {r.music}</li>{/if}
-        {#if r.layers.added}<li>· {r.layers.added} escenas encimadas</li>{/if}
+        {#if r.layers.added}<li>· {r.layers.added} escenas añadidas al final</li>{/if}
         {#if r.layers.chromaed}<li>· {r.layers.chromaed} con la pantalla verde quitada</li>{/if}
         {#if r.layers.cutout}<li>· {r.layers.cutout} con la persona recortada</li>{/if}
         {#if r.layers.pip}<li>· {r.layers.pip} en imagen en imagen</li>{/if}
@@ -144,8 +144,13 @@
       </label>
       {#if o.selectHighlights}
         <p class="sub text-[10px] leading-snug">
-          Mira todo el material, puntúa cada tramo por lo que suena y lo que se mueve, y monta solo
-          lo mejor en orden. Sustituye a quitar silencios.
+          {#if o.useAi && o.aiProvider !== "none"}
+            La IA ve todo el material —cada clip, sus tramos con más sonido y movimiento y lo que se
+            dice en ellos— y elige los momentos que cuentan la historia según el estilo pedido.
+          {:else}
+            Puntúa cada tramo por lo que suena y lo que se mueve, y monta solo lo mejor en orden.
+          {/if}
+          Sustituye a quitar silencios.
         </p>
         <label class="sub">
           <span>Dejarlo en</span>
@@ -184,13 +189,15 @@
 
       <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.syncToBeat} /> Cortar al ritmo de la música</label>
       <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.addMusic} /> Poner música libre si no hay</label>
-      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useLayers} /> Montar escenas encima</label>
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useLayers} /> Preparar las capas</label>
       {#if o.useLayers}
         <p class="sub text-[10px] leading-snug">
-          Quita la pantalla verde, recorta a las personas y pone en una esquina lo que taparía el vídeo.
+          En lo que ya esté en O1/O2: quita la pantalla verde, recorta a las personas y pone en una esquina
+          lo que taparía el vídeo. No encima clips por su cuenta.
         </p>
-        <label class="row pl-[22px] text-muted">
-          <input type="checkbox" class="accent-accent" bind:checked={o.addSpareScenes} /> Usar los medios sin montar
+        <label class="row pl-[22px] text-muted" class:opacity-50={o.useAllMedia}>
+          <input type="checkbox" class="accent-accent" bind:checked={o.addSpareScenes} disabled={o.useAllMedia} />
+          Añadir al final los medios sin montar, con transición
         </label>
         {#if o.addSpareScenes}
           <label class="sub">
@@ -212,7 +219,7 @@
         </label>
       {/if}
 
-      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useAi} /> Títulos y textos</label>
+      <label class="row"><input type="checkbox" class="accent-accent" bind:checked={o.useAi} /> Dirigir con IA: momentos, títulos y textos</label>
       {#if o.useAi}
         <label class="sub">
           <span>Con</span>

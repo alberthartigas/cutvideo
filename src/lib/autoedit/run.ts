@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { clipEnd, project, type Clip } from "$lib/project.svelte";
+import { clipDuration, clipEnd, project, type Clip } from "$lib/project.svelte";
 import { buildCues, SUBTITLE_STYLES } from "$lib/subtitles/cues";
 import { TITLE_PRESETS } from "$lib/text/title-presets";
 import { transcribe, type TranscribeProvider } from "$lib/tauri/transcribe";
@@ -8,7 +8,7 @@ import type { Word } from "$lib/subtitles/cues";
 import { DEFAULT_TEXT, type TextData } from "$lib/text/styles";
 import { getTransition } from "$lib/transitions/presets";
 import { autoLayers } from "./layers";
-import { applyHighlights, planHighlights } from "./highlights";
+import { analyzeCandidates, applyHighlights, planHighlights, type Highlight, type Origen } from "./highlights";
 
 // Espejo de src-tauri/src/analyze.rs, music_rights.rs y ai.rs.
 export interface Silence {
@@ -55,6 +55,8 @@ export interface EditPlan {
   title: string;
   titlePreset: string;
   highlights: { time: number; text: string }[];
+  /** Momentos elegidos por la IA a partir del material: índice de clip y tramo dentro del archivo. */
+  picks?: { clip: number; in: number; out: number; why?: string }[];
   subtitleStyle: string;
   transition: string;
   musicQuery: string;
@@ -92,6 +94,15 @@ export const AI_PROVIDERS: { id: AiProvider; name: string; note: string; needsKe
   { id: "anthropic", name: "Claude", note: "de pago · mejor calidad", needsKey: "anthropic" },
 ];
 
+/** Lo que la IA sabe de cada clip del material. */
+export interface MaterialClip {
+  index: number;
+  name: string;
+  duration: number;
+  recordedAt: string | null;
+  candidates: { in: number; out: number; score: number; words: string }[];
+}
+
 export const aiEditPlan = (request: {
   transcript: string;
   duration: number;
@@ -100,7 +111,87 @@ export const aiEditPlan = (request: {
   style: string;
   language: string;
   provider: AiProvider;
+  material?: MaterialClip[];
+  targetSeconds?: number | null;
 }) => invoke<EditPlan>("ai_edit_plan", { request });
+
+/**
+ * Resumen del material para la IA: por clip, sus mejores tramos con la
+ * puntuación y lo que se dice en cada uno. Así elige con el contexto de
+ * todo lo grabado y no solo con una transcripción plana.
+ */
+function describirMaterial(
+  clips: Clip[],
+  candidates: { clip: Clip; in: number; out: number; score: number }[],
+  words: Word[],
+): MaterialClip[] {
+  return clips.map((clip, index) => ({
+    index,
+    name: clip.name,
+    duration: Math.round(clipDuration(clip) * 10) / 10,
+    recordedAt: project.mediaOf(clip)?.recordedAt ?? null,
+    candidates: candidates
+      .filter((c) => c.clip.id === clip.id)
+      .map((c) => {
+        // Palabras dichas dentro del tramo, en tiempo del timeline actual.
+        const desde = clip.start + (c.in - clip.in);
+        const hasta = desde + (c.out - c.in);
+        const dichas = words
+          .filter((w) => w.start >= desde && w.start < hasta)
+          .map((w) => w.word)
+          .join(" ")
+          .slice(0, 160);
+        return {
+          in: Math.round(c.in * 10) / 10,
+          out: Math.round(c.out * 10) / 10,
+          score: Math.round(c.score * 100) / 100,
+          words: dichas,
+        };
+      }),
+  }));
+}
+
+/** Lleva una transcripción hecha sobre el material entero al timeline ya cortado. */
+function recolocarPalabras(words: Word[], origen: Origen): Word[] {
+  const tramos = project.videoTrack.clips
+    .map((c) => ({ o: origen.get(c.id), newStart: c.start }))
+    .filter((t): t is { o: { origStart: number; origEnd: number }; newStart: number } => !!t.o);
+  const out: Word[] = [];
+  for (const w of words) {
+    const t = tramos.find((t) => w.start >= t.o.origStart && w.start < t.o.origEnd);
+    if (!t) continue;
+    const d = t.newStart - t.o.origStart;
+    out.push({ ...w, start: w.start + d, end: Math.min(w.end + d, t.newStart + (t.o.origEnd - t.o.origStart)) });
+  }
+  return out;
+}
+
+/**
+ * Convierte los momentos que devuelve la IA en tramos reales, descartando lo
+ * que no cuadre (clip inexistente, tramo fuera del archivo o demasiado corto).
+ */
+function picksDeLaIA(
+  plan: EditPlan,
+  clips: Clip[],
+  targetSeconds: number,
+): Highlight[] {
+  const out: Highlight[] = [];
+  let total = 0;
+  for (const p of plan.picks ?? []) {
+    const clip = clips[p.clip];
+    if (!clip) continue;
+    const a = Math.max(clip.in, Number(p.in));
+    const b = Math.min(clip.out, Number(p.out));
+    if (!(b - a >= 1)) continue;
+    if (out.some((o) => o.clip.id === clip.id && a < o.out && b > o.in)) continue;
+    out.push({ clip, in: a, out: b, score: 1 });
+    total += b - a;
+    if (total >= targetSeconds * 1.25) break;
+  }
+  const orden = new Map(clips.map((c, i) => [c.id, i]));
+  out.sort((x, y) => orden.get(x.clip.id)! - orden.get(y.clip.id)! || x.in - y.in);
+  return out;
+}
 
 const capitalize = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -130,6 +221,7 @@ export function localPlan(words: Word[], duration: number, subtitleStyle: string
     title: capitalize(title) || "Mi vídeo",
     titlePreset: "pop",
     highlights,
+    picks: [],
     subtitleStyle,
     transition: transitionId,
     musicQuery: "upbeat background music",
@@ -371,24 +463,75 @@ export async function runAutoEdit(
   // Va antes que los silencios y los sustituye: si ya se han elegido los
   // momentos buenos, volver a picar por pausas solo estropea lo elegido.
   let haElegido = false;
+  // Transcripción y plan pueden llegar ya en este paso, cuando elige la IA;
+  // los pasos de más abajo los reutilizan en vez de repetir el trabajo.
+  let transcriptText = "";
+  let lastWords: Word[] = [];
+  let planIA: EditPlan | null = null;
+  let origen: Origen | null = null;
+  const objetivo = Math.max(5, options.targetSeconds);
+  const conIA = options.useAi && options.aiProvider !== "none";
   if (options.selectHighlights) {
-    const plan = await planHighlights(
-      [...project.videoTrack.clips],
-      Math.max(5, options.targetSeconds),
-      onStep,
-      () => false,
-    );
-    result.notes.push(...plan.notes);
-    if (plan.picks.length) {
-      onStep(`Montando ${plan.picks.length} momentos…`);
-      applyHighlights(plan.picks);
-      result.highlights = {
-        picks: plan.picks.length,
-        seconds: plan.seconds,
-        originalSeconds: plan.originalSeconds,
-      };
-      result.cuts = Math.max(0, plan.picks.length - 1);
-      result.removedSeconds = Math.max(0, plan.originalSeconds - plan.seconds);
+    const material = [...project.videoTrack.clips];
+    let picks: Highlight[] = [];
+    let originalSeconds = material.reduce((n, c) => n + clipDuration(c), 0);
+
+    // Con IA: se le enseña TODO el material —cada clip, sus mejores tramos
+    // y lo que se dice en ellos— y elige ella según el estilo pedido.
+    if (conIA) {
+      try {
+        onStep("Transcribiendo todo el material…");
+        const transcript = await transcribe({
+          provider: options.provider,
+          language: options.language || null,
+          clips: clipsForBackend(material),
+        });
+        transcriptText = transcript.text;
+        lastWords = transcript.words;
+      } catch (e) {
+        result.notes.push(`Sin transcripción del material: ${e}`);
+      }
+      const cand = await analyzeCandidates(material, onStep, () => false);
+      result.notes.push(...cand.notes);
+      originalSeconds = cand.originalSeconds;
+      onStep("La IA está eligiendo los momentos…");
+      try {
+        planIA = await aiEditPlan({
+          transcript: transcriptText,
+          duration: originalSeconds,
+          clipCount: material.length,
+          bpm: result.bpm,
+          style: options.style,
+          language: options.language || "es",
+          provider: options.aiProvider,
+          material: describirMaterial(material, cand.candidates, lastWords),
+          targetSeconds: objetivo,
+        });
+        picks = picksDeLaIA(planIA, material, objetivo);
+        if (picks.length && planIA.reasoning) result.notes.push(`IA: ${planIA.reasoning}`);
+        if (!picks.length) {
+          result.notes.push("La IA no devolvió momentos válidos: se eligen por sonido y movimiento.");
+        }
+      } catch (e) {
+        result.notes.push(`No se pudo pedir el plan a la IA: ${e}`);
+        planIA = null;
+      }
+    }
+
+    if (!picks.length) {
+      const plan = await planHighlights(material, objetivo, onStep, () => false);
+      result.notes.push(...plan.notes);
+      picks = plan.picks;
+      originalSeconds = plan.originalSeconds;
+    }
+
+    if (picks.length) {
+      onStep(`Montando ${picks.length} momentos…`);
+      origen = applyHighlights(picks);
+      const seconds = picks.reduce((n, p) => n + (p.out - p.in), 0);
+      result.highlights = { picks: picks.length, seconds, originalSeconds };
+      result.cuts = Math.max(0, picks.length - 1);
+      result.removedSeconds = Math.max(0, originalSeconds - seconds);
       haElegido = true;
     } else {
       result.notes.push(
@@ -459,7 +602,9 @@ export async function runAutoEdit(
     try {
       result.layers = await autoLayers(
         {
-          addSpare: options.addSpareScenes,
+          // Si ya se montó todo el material, lo que la selección dejó fuera
+          // se quedó fuera a propósito: no vuelve a entrar por aquí.
+          addSpare: options.addSpareScenes && !options.useAllMedia,
           maxSpare: Math.max(0, Math.min(3, options.maxSpareScenes)),
           beats,
         },
@@ -477,17 +622,22 @@ export async function runAutoEdit(
   }
 
   // 7) Subtítulos.
-  let transcriptText = "";
-  let lastWords: Word[] = [];
   if (options.addSubtitles) {
-    onStep("Transcribiendo el audio…");
-    const transcript = await transcribe({
-      provider: options.provider,
-      language: options.language || null,
-      clips: clipsForBackend(project.videoTrack.clips),
-    });
-    transcriptText = transcript.text;
-    lastWords = transcript.words;
+    if (lastWords.length && origen) {
+      // Ya se transcribió el material entero: solo hay que recolocar las
+      // palabras en el timeline cortado (y ya con las transiciones puestas).
+      lastWords = recolocarPalabras(lastWords, origen);
+    } else {
+      onStep("Transcribiendo el audio…");
+      const transcript = await transcribe({
+        provider: options.provider,
+        language: options.language || null,
+        clips: clipsForBackend(project.videoTrack.clips),
+      });
+      transcriptText = transcript.text;
+      lastWords = transcript.words;
+    }
+    const transcript = { words: lastWords };
     if (transcript.words.length) {
       const style = estiloSubtitulo(options.subtitleStyle);
       const cues = buildCues(transcript.words, style.cue);
@@ -501,11 +651,11 @@ export async function runAutoEdit(
   // 8) Título y frases destacadas con IA.
   if (options.useAi) {
     const local = options.aiProvider === "none";
-    onStep(local ? "Redactando los textos…" : "Pidiendo el plan de edición…");
+    if (!planIA) onStep(local ? "Redactando los textos…" : "Pidiendo el plan de edición…");
     try {
       const plan = local
         ? localPlan(lastWords, project.duration, options.subtitleStyle, options.transitionId)
-        : await aiEditPlan({
+        : planIA ?? (await aiEditPlan({
             transcript: transcriptText,
             duration: project.duration,
             clipCount: project.videoTrack.clips.length,
@@ -513,12 +663,33 @@ export async function runAutoEdit(
             style: options.style,
             language: options.language || "es",
             provider: options.aiProvider,
-          });
+          }));
       result.plan = plan;
 
       const preset = TITLE_PRESETS.find((p) => p.id === plan.titlePreset) ?? TITLE_PRESETS[1];
       const videoEnd = project.videoTrack.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
-      const makeText = (text: string, at: number, data: Partial<TextData>, dur: number) => {
+      /**
+       * Que un rótulo no se quede a caballo de un corte: la imagen cambia y el
+       * texto sigue, y eso canta. Se acorta para que acabe antes del corte o,
+       * si ya está pegado a él, empieza con el clip siguiente.
+       */
+      const encajar = (at: number, dur: number): { at: number; dur: number } => {
+        const c = project.clipAt(project.videoTrack, at);
+        if (!c) return { at, dur };
+        const sig = project.nextClip(c);
+        // Con transición, el cambio de plano empieza donde arranca el siguiente.
+        const fin = sig ? Math.min(clipEnd(c), sig.start) : clipEnd(c);
+        if (at + dur <= fin - 0.15) return { at, dur };
+        const hueco = fin - at;
+        if (hueco >= 1.2) return { at, dur: hueco - 0.15 };
+        if (sig) return { at: clipEnd(c) + 0.1, dur: Math.max(0.8, Math.min(dur, clipDuration(sig) - 0.3)) };
+        return { at: Math.max(c.start, fin - dur), dur: Math.min(dur, fin - c.start) };
+      };
+      const textos = project.tracks.find((t) => t.id === "t1");
+      const makeText = (text: string, at0: number, data: Partial<TextData>, dur0: number) => {
+        // Si ya hay un rótulo ahí (el título), este entra cuando acabe aquel.
+        const ocupado = textos?.clips.find((c) => at0 >= c.start && at0 < clipEnd(c));
+        const { at, dur } = encajar(ocupado ? clipEnd(ocupado) + 0.1 : at0, dur0);
         const start = Math.min(at, Math.max(0, videoEnd - 0.5));
         const clip = project.addText(start);
         project.updateText(clip.id, { ...DEFAULT_TEXT, ...data, text });
@@ -529,9 +700,13 @@ export async function runAutoEdit(
       if (plan.title.trim()) {
         makeText(plan.title.trim(), 0, { ...preset.data, fontSize: 0.1, y: 0.42 }, 2.5);
       }
-      for (const h of plan.highlights) {
+      // Como mucho cuatro rótulos y separados: más de eso es ruido.
+      let ultimo = -Infinity;
+      for (const h of plan.highlights.slice(0, 4)) {
         const at = Math.min(Math.max(0, h.time), Math.max(0, videoEnd - 1));
-        if (h.text.trim()) makeText(h.text.trim(), at, { ...preset.data, fontSize: 0.07, y: 0.2 }, 2);
+        if (!h.text.trim() || at - ultimo < 4) continue;
+        makeText(h.text.trim(), at, { ...preset.data, fontSize: 0.06, y: 0.2 }, 2);
+        ultimo = at;
       }
       // Con la transición en "auto" la IA aporta su propuesta a la mezcla,
       // pero sin que se repita en los cincuenta cortes.
@@ -545,7 +720,7 @@ export async function runAutoEdit(
       }
 
       // Si el estilo estaba en "auto", manda el que proponga la IA.
-      if (options.subtitleStyle === "auto" && lastWords.length && plan.subtitleStyle) {
+      if (options.addSubtitles && options.subtitleStyle === "auto" && lastWords.length && plan.subtitleStyle) {
         const style = SUBTITLE_STYLES.find((s) => s.id === plan.subtitleStyle);
         if (style) {
           const cues = buildCues(lastWords, style.cue);

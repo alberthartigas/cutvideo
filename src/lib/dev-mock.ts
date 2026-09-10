@@ -102,6 +102,15 @@ export function installDevMock() {
         const loudness = times.map((_, i) => 0.1 + 0.8 * (pico(i, n * 0.15) + pico(i, n * 0.5) + pico(i, n * 0.85)));
         return { times, loudness, motion: loudness.map((v) => v * 0.5), cuts: [] };
       }
+      case "make_waveform": {
+        // Onda sintética: voz a ráfagas con silencios, para ver los tramos.
+        const info = FILES.find((f) => f.path === args.path);
+        const n = Math.round((info?.durationSec ?? 3) * 50);
+        return Array.from({ length: n }, (_, i) => {
+          const frase = Math.sin(i / 35) > -0.2 ? 1 : 0.05;
+          return Math.round(255 * frase * (0.35 + 0.65 * Math.abs(Math.sin(i / 3.7))));
+        });
+      }
       case "make_filmstrip":
         // En modo navegador se sirve una tira de ejemplo desde static.
         return "/dev-media/tira.jpg";
@@ -268,8 +277,23 @@ export function installDevMock() {
       case "download_track":
         await sleep(700);
         return `${DIR}/music.mp3`;
-      case "ai_edit_plan":
+      case "ai_edit_plan": {
         await sleep(900);
+        // Con material delante, la IA simulada se queda con el mejor tramo de
+        // cada clip hasta llenar el objetivo, igual que haría la de verdad.
+        const req = args.request as {
+          provider?: string;
+          targetSeconds?: number | null;
+          material?: { index: number; candidates: { in: number; out: number; score: number }[] }[];
+        };
+        const picks: { clip: number; in: number; out: number; why: string }[] = [];
+        let total = 0;
+        for (const m of req.material ?? []) {
+          const mejor = [...m.candidates].sort((a, b) => b.score - a.score)[0];
+          if (!mejor || total >= (req.targetSeconds ?? 60)) continue;
+          picks.push({ clip: m.index, in: mejor.in, out: mejor.out, why: "pico de interés" });
+          total += mejor.out - mejor.in;
+        }
         return {
           title: "Así se hace",
           titlePreset: "pop",
@@ -277,11 +301,13 @@ export function installDevMock() {
             { time: 2, text: "Empieza aquí" },
             { time: 6, text: "El truco" },
           ],
-          subtitleStyle: "karaoke",
+          picks,
+          subtitleStyle: "discreto",
           transition: "zoom",
           musicQuery: "upbeat electronic background",
-          reasoning: `Plan simulado en modo navegador (${(args.request as { provider?: string }).provider ?? "groq"}).`,
+          reasoning: `Plan simulado en modo navegador (${req.provider ?? "groq"}).`,
         };
+      }
       case "export_video": {
         await sleep(1200);
         const plan = args.plan as { output: string };
