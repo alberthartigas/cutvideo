@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { Pause, Play, SkipBack } from "@lucide/svelte";
   import { project, type Clip, type Track } from "$lib/project.svelte";
-  import { mediaSrc } from "$lib/tauri/media";
+  import { proxies } from "$lib/proxies.svelte";
   import { formatDuration } from "$lib/format";
   import { renderTextClips } from "$lib/text/render";
   import { transitionFrame } from "$lib/transitions/presets";
@@ -48,7 +48,7 @@
         const pos = patchAt(p, t);
         return {
           id: c.id,
-          src: mediaSrc(c.mediaPath),
+          src: proxies.src(c.mediaPath),
           left: pos.x * 100,
           top: pos.y * 100,
           width: p.width * pos.scale * 100,
@@ -76,7 +76,7 @@
   /** Deja listo un clip en un elemento sin reproducirlo (precarga). */
   function preload(el: HTMLVideoElement | undefined, clip: Clip) {
     if (!el) return;
-    const src = mediaSrc(clip.mediaPath);
+    const src = proxies.src(clip.mediaPath);
     if (el.dataset.src !== src) {
       el.dataset.src = src;
       el.src = src;
@@ -145,7 +145,7 @@
 
   /** Ajusta un elemento a un clip concreto en el instante `t`. */
   function syncClip(el: HTMLMediaElement, clip: Clip, t: number, playing: boolean) {
-    const src = mediaSrc(clip.mediaPath);
+    const src = proxies.src(clip.mediaPath);
     if (el.dataset.src !== src) {
       el.dataset.src = src;
       el.src = src;

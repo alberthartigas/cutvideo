@@ -6,6 +6,7 @@ mod music_rights;
 mod neterr;
 mod patches;
 mod projects;
+mod proxies;
 mod secrets;
 mod sfx;
 mod transcribe;
@@ -75,6 +76,9 @@ pub fn run() {
             projects::load_project,
             projects::save_project,
             projects::delete_project,
+            proxies::proxy_for,
+            proxies::make_proxy,
+            proxies::clear_proxies,
             sfx::builtin_sfx,
             projects::projects_storage,
             patches::list_patches,

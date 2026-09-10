@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { LoaderCircle } from "@lucide/svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import TitleBar from "$lib/components/TitleBar.svelte";
   import Preview from "$lib/components/Preview.svelte";
@@ -32,6 +33,7 @@
   import Splitter from "$lib/components/Splitter.svelte";
   import { startDrag } from "$lib/drag";
   import { drop } from "$lib/media-drop.svelte";
+  import { proxies } from "$lib/proxies.svelte";
 
   let timeline = $state<ReturnType<typeof Timeline>>();
   let selectedMedia = $state<MediaInfo | null>(null);
@@ -85,6 +87,9 @@
       }
     }
     importing = false;
+    // Las copias de edición se preparan por detrás: sin ellas el preview va a
+    // trompicones con vídeos de móvil, que son de 6 megapíxeles.
+    proxies.prepare(project.media);
   }
 
   async function importFromDialog() {
@@ -312,6 +317,12 @@
   <footer class="flex h-7 shrink-0 items-center gap-2 border-t border-border bg-panel px-3 text-[11px] text-muted">
     <span class="size-1.5 rounded-full {ffmpeg.ok ? 'bg-emerald-500' : 'bg-red-500'}"></span>
     <span>{ffmpeg.text}</span>
+    {#if proxies.pendientes > 0}
+      <span class="flex items-center gap-1.5 text-accent" title="Copias ligeras para que el preview vaya fluido. Mientras tanto se edita con los originales.">
+        <LoaderCircle size={11} class="animate-spin" />
+        Preparando {proxies.pendientes} {proxies.pendientes === 1 ? "copia" : "copias"} de edición…
+      </span>
+    {/if}
     <span class="ml-auto">
       {project.media.length} {project.media.length === 1 ? "archivo" : "archivos"}
       · {project.clipCount} {project.clipCount === 1 ? "clip" : "clips"}

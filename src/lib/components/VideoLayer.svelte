@@ -1,6 +1,6 @@
 <script lang="ts">
   import { clipEnd, project, type Clip, type Track } from "$lib/project.svelte";
-  import { mediaSrc } from "$lib/tauri/media";
+  import { proxies } from "$lib/proxies.svelte";
   import { effectsCss, effectsVignette } from "$lib/effects/presets";
   import { DEFAULT_LAYOUT } from "$lib/layers";
   import { LayerRenderer } from "$lib/preview/layer-gl";
@@ -55,7 +55,7 @@
       if (!el.paused) el.pause();
       return;
     }
-    const src = mediaSrc(clip.mediaPath);
+    const src = proxies.src(clip.mediaPath);
     if (el.dataset.src !== src) {
       el.dataset.src = src;
       el.src = src;
