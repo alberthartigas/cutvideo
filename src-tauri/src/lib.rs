@@ -1,6 +1,7 @@
 mod ai;
 mod analyze;
 mod export;
+mod highlights;
 mod media;
 mod music_rights;
 mod neterr;
@@ -76,6 +77,7 @@ pub fn run() {
             projects::load_project,
             projects::save_project,
             projects::delete_project,
+            highlights::analyze_highlights,
             proxies::proxy_for,
             proxies::make_proxy,
             proxies::clear_proxies,
