@@ -103,3 +103,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/merge-latest-json.sh "${{ env.TAG }}"
+
+      # Ya con las dos plataformas dentro, la release deja de ser prelanzamiento
+      # y pasa a ser la que ofrece el actualizador. Si Windows ha fallado se
+      # queda como está: mejor no actualizar a nadie que dar un manifiesto a medias.
+      - name: Ascender la release a "latest"
+        if: needs.build.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ env.TAG }}" --prerelease=false --latest

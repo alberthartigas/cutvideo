@@ -32,8 +32,22 @@ export async function checkForUpdate(): Promise<UpdateState> {
       date: update.date ?? null,
     };
   } catch (e) {
-    return { kind: "error", message: String(e) };
+    return { kind: "error", message: legible(e) };
   }
+}
+
+/**
+ * Los errores del actualizador vienen en inglés y del interior del plugin. El
+ * único que se ve de verdad es el de una versión que aún no tiene paquete para
+ * este sistema (Windows tarda unos minutos más en compilarse), y así dicho no
+ * lo entiende nadie.
+ */
+function legible(e: unknown): string {
+  const texto = String(e);
+  if (/fallback platforms|platforms.*not.*found/i.test(texto)) {
+    return "Esta versión todavía se está preparando para tu sistema. Vuelve a intentarlo en unos minutos.";
+  }
+  return texto;
 }
 
 /** Descarga e instala lo que encontró `checkForUpdate`. */
@@ -51,7 +65,7 @@ export async function installUpdate(onProgress: (percent: number) => void): Prom
     });
     return { kind: "ready" };
   } catch (e) {
-    return { kind: "error", message: String(e) };
+    return { kind: "error", message: legible(e) };
   }
 }
 

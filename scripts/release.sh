@@ -89,7 +89,14 @@ git diff --quiet || git commit -am "Versión $VERSION"
 # se quedaría sin su tag.
 git tag -a "v$VERSION" -m "CutVideo $VERSION"
 git push --follow-tags
-gh release create "v$VERSION" --title "CutVideo $VERSION" --notes "$NOTAS" \
+# Sale como prelanzamiento a propósito. El actualizador pregunta por
+# `releases/latest`, que GitHub resuelve saltándose los prelanzamientos: si la
+# release fuera "latest" desde ya, durante los ~20 minutos que tarda Windows en
+# compilar su parte el manifiesto solo tendría macOS y a los usuarios de Windows
+# les saldría "None of the fallback platforms were found". El flujo de Windows
+# la asciende a "latest" cuando ha juntado todas las plataformas.
+gh release create "v$VERSION" --title "CutVideo $VERSION" --notes "$NOTAS" --prerelease \
   "$ARCHIVO" "$ARCHIVO.sig" "$BUNDLE/latest.json" \
   "$BUNDLE"/dmg/CutVideo_*.dmg
-echo "✓ Publicada la $VERSION"
+echo "✓ Publicada la $VERSION (como prelanzamiento)"
+echo "  Pasará a ser la versión que ofrece el actualizador cuando termine el flujo de Windows."
