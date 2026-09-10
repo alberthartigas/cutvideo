@@ -104,6 +104,10 @@ Cada plataforma sube su propio `latest.json`, así que
 Para probar la app en Windows hay un guion con lo que conviene mirar (y cómo
 poner la IA en local con Ollama): [`docs/pruebas-windows.md`](docs/pruebas-windows.md).
 
+Los instaladores **no van firmados**, así que Windows avisa de «editor
+desconocido» y el antivirus los inspecciona. Qué hacer mientras tanto y cuánto
+costaría firmarlos: [`docs/windows-firma.md`](docs/windows-firma.md).
+
 ## Firma de la app (macOS)
 
 `src-tauri/tauri.conf.json` lleva el Developer ID del autor en

@@ -65,6 +65,17 @@ if [[ -z "$ARCHIVO" ]]; then
 fi
 FIRMA="$(cat "$ARCHIVO.sig")"
 NOTAS="${NOTAS:-Mejoras y correcciones.}"
+# Casi todo el que descargue el .exe se va a topar con el aviso de Windows: más
+# vale explicarlo en la propia página de la release que dejarle con la duda.
+NOTAS="$NOTAS
+
+---
+
+**Windows**: el instalador no está firmado todavía, así que SmartScreen avisa de
+un «editor desconocido» y el antivirus lo inspecciona. Es un falso positivo:
+todo esto se compila en GitHub Actions desde el código de este repositorio.
+Pulsa *Más información → Ejecutar de todas formas*. Detalles y estado de la
+firma: [docs/windows-firma.md](https://github.com/alberthartigas/cutvideo/blob/main/docs/windows-firma.md)."
 
 echo "→ latest.json"
 python3 - "$VERSION" "$(basename "$ARCHIVO")" "$FIRMA" "$TARGET" > "$BUNDLE/latest.json" <<'PY'
