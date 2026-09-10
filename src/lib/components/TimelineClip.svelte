@@ -3,7 +3,7 @@
   import { startDrag } from "$lib/drag";
   import { openMenu } from "$lib/context-menu.svelte";
   import { drop } from "$lib/media-drop.svelte";
-  import { AudioLines, Link2, Scissors, Trash2, Unlink } from "@lucide/svelte";
+  import { AudioLines, Captions, Link2, Scissors, Trash2, Unlink } from "@lucide/svelte";
   import ClipArt from "./ClipArt.svelte";
 
   /** Acciones básicas sobre este clip, para quien corrige a mano la autoedición. */
@@ -36,6 +36,23 @@
         : []),
       ...(audioSeparado || esAudioSeparado
         ? [{ label: "Volver a unir audio y vídeo", icon: Link2, run: () => project.reattachAudio(clip.id) }]
+        : []),
+      // Se afina uno con calma y de ahí salen todos los demás.
+      ...(track.id === "s1" && clip.text
+        ? [
+            {
+              label: "Aplicar este aspecto a todos los subtítulos",
+              icon: Captions,
+              run: () => {
+                project.commit();
+                const { text: _t, wordTimes: _w, ...aspecto } = clip.text!;
+                project.updateTexts(
+                  project.subtitleTrack.clips.map((c) => c.id),
+                  aspecto,
+                );
+              },
+            },
+          ]
         : []),
       {
         label: varios ? `Eliminar ${project.selectedIds.length} clips` : "Eliminar",

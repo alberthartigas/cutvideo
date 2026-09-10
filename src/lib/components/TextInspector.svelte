@@ -7,7 +7,18 @@
   let { clip }: { clip: Clip } = $props();
   let data = $derived(clip.text!);
 
-  const set = (patch: Partial<TextData>) => project.updateText(clip.id, patch);
+  /**
+   * Con varios textos marcados (⇧ o el cuadro de selección) los controles de
+   * estilo cambian todos a la vez: retocar cuarenta subtítulos uno a uno no es
+   * trabajo de nadie. El texto en sí sigue siendo el de este clip.
+   */
+  let otros = $derived(
+    project.selectedIds.filter((id) => id !== clip.id && project.findClip(id)?.clip.kind === "text"),
+  );
+  const set = (patch: Partial<TextData>) => {
+    project.updateText(clip.id, patch);
+    if (otros.length) project.updateTexts(otros, patch);
+  };
   const num = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
   const str = (e: Event) => (e.currentTarget as HTMLInputElement | HTMLSelectElement).value;
   const POSITIONS = [
@@ -33,6 +44,11 @@
   <p class="mt-1 text-[11px] text-muted">
     {formatDuration(clip.start)} · {formatDuration(clipDuration(clip))} · Intro para nueva línea
   </p>
+  {#if otros.length}
+    <p class="mt-2 rounded-md bg-accent/10 px-2 py-1 text-[11px] text-accent">
+      Tamaño, estilo y posición se aplican a los {otros.length + 1} textos marcados.
+    </p>
+  {/if}
 
   <h3 class="mt-4 mb-2 text-[11px] font-semibold tracking-wider text-muted uppercase">Animación</h3>
   <div class="flex flex-col gap-2">

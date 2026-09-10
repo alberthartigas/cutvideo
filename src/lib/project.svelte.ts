@@ -545,6 +545,20 @@ class ProjectStore {
   }
 
   /**
+   * El mismo cambio en varios textos. Nunca toca `text` ni `wordTimes`: cada
+   * subtítulo dice lo suyo, lo que se cambia en bloque es cómo se ve.
+   */
+  updateTexts(ids: string[], patch: Partial<TextData>) {
+    const { text: _t, wordTimes: _w, ...comun } = patch;
+    for (const id of ids) this.updateText(id, comun);
+  }
+
+  /** Todos los subtítulos de S1, marcados para poder retocarlos a la vez. */
+  selectSubtitles() {
+    this.setSelection(this.subtitleTrack.clips.map((c) => c.id));
+  }
+
+  /**
    * Quita de la pista principal los tramos `[inicio, fin]` indicados (en tiempo de
    * timeline) y recompacta. Se usa para eliminar silencios automáticamente.
    * Devuelve los segundos eliminados.
