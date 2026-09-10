@@ -1,6 +1,6 @@
 [package]
 name = "cutvideo"
-version = "0.1.9"
+version = "0.1.10"
 license = "MIT"
 authors = ["Alberth Artigas"]
 description = "CutVideo — editor de vídeo rápido"
