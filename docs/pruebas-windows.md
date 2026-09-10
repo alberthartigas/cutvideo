@@ -95,13 +95,27 @@ sigue yendo a Groq/OpenAI: Ollama no transcribe audio.
    momentos y los textos) un 7B–14B que siga instrucciones va sobrado; los
    modelos "razonadores" tardan más y no mejoran el resultado.
 
-4. Comprueba que responde:
+4. Dale contexto suficiente. Ollama arranca los modelos con 4096 tokens de
+   contexto y el encargo de CutVideo (transcripción + resumen del material +
+   esquema JSON) se acerca a ese límite: si se pasa, Ollama recorta el principio
+   sin avisar y el plan sale pobre. Se sube una vez, en PowerShell, y se
+   reinicia Ollama desde la bandeja del sistema:
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable("OLLAMA_CONTEXT_LENGTH", "8192", "User")
+   ```
+
+   Ojo con la VRAM: el modelo se queda cargado 5 minutos tras usarlo y compite
+   con el codificador de vídeo. Si vas justo, `ollama stop <modelo>` antes de
+   exportar.
+
+5. Comprueba que responde:
 
    ```powershell
    ollama run qwen2.5:7b-instruct "Responde solo con: listo"
    curl http://localhost:11434/v1/models
    ```
 
-5. En CutVideo: **Autoedición → Dirigir con IA → Con: Ollama**. Si el modelo que
+6. En CutVideo: **Autoedición → Dirigir con IA → Con: Ollama**. Si el modelo que
    descargaste no es de la lista de preferidos, la app coge el primero de texto
    que encuentre instalado.
