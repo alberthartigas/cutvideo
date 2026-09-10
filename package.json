@@ -1,6 +1,6 @@
 {
   "name": "cutvideo",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Editor de vídeo rápido para Mac y Windows",
   "type": "module",
   "scripts": {
