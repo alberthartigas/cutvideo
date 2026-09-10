@@ -91,10 +91,89 @@ jobs:
           releaseId: ${{ github.event.release.id }}
           args: --target ${{ matrix.target }}
 
+  # Los secretos no se pueden consultar desde el `if` de un job, así que se
+  # miran aquí y el resultado se pasa como salida. Mientras no haya cuenta de
+  # SignPath esto vale 'false', el job de firma se salta entero y la release
+  # sale exactamente igual que antes.
+  firma-configurada:
+    runs-on: ubuntu-latest
+    outputs:
+      lista: ${{ steps.mirar.outputs.lista }}
+    steps:
+      - id: mirar
+        env:
+          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          ORG: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$ORG" ]; then
+            echo "lista=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "lista=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Sin credenciales de SignPath: los instaladores salen sin firmar."
+          fi
+
+  # Firma Authenticode de los instaladores, que es lo que quita el aviso de
+  # «editor desconocido» de SmartScreen y calma a los antivirus.
+  #
+  # Va después de compilar y no como `signCommand` de Tauri porque SignPath
+  # firma en su servidor: se sube el artefacto, se espera y se descarga
+  # firmado. Eso no encaja en un comando síncrono del empaquetado.
+  #
+  # Lo delicado lo hace scripts/refirmar-windows.sh: al firmar cambian los
+  # bytes del instalador y la firma del actualizador deja de valer, así que
+  # hay que rehacerla antes de que `merge` junte el latest.json.
+  firmar:
+    needs: [build, firma-configurada]
+    if: needs.firma-configurada.outputs.lista == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Bajar los instaladores de la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p sin-firmar
+          gh release download "$TAG" --dir sin-firmar --clobber \
+            --pattern "*-setup.exe" --pattern "*_en-US.msi"
+          ls -l sin-firmar
+
+      - id: subir
+        uses: actions/upload-artifact@v4
+        with:
+          name: instaladores-sin-firmar
+          path: sin-firmar/
+
+      # project-slug y signing-policy-slug tienen que coincidir con los del
+      # proyecto creado en SignPath; si allí se llaman de otra forma, se cambian
+      # aquí. Ver docs/windows-firma.md.
+      - name: Firmar en SignPath
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          project-slug: cutvideo
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.subir.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: firmados
+
+      - name: Rehacer la firma del actualizador y subir
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: bash scripts/refirmar-windows.sh "$TAG" firmados
+
   # Cada compilación sube su propio latest.json y la última borraría a las
   # demás, así que se juntan al final, cuando ya han terminado todas.
   merge:
-    needs: build
+    needs: [build, firmar]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -107,8 +186,11 @@ jobs:
       # Ya con las dos plataformas dentro, la release deja de ser prelanzamiento
       # y pasa a ser la que ofrece el actualizador. Si Windows ha fallado se
       # queda como está: mejor no actualizar a nadie que dar un manifiesto a medias.
+      # Con la firma igual: si falla, el instalador de la release y la firma del
+      # latest.json podrían no corresponderse, y el actualizador rechazaría la
+      # descarga. Mejor dejarla en prelanzamiento y mirarlo.
       - name: Ascender la release a "latest"
-        if: needs.build.result == 'success'
+        if: needs.build.result == 'success' && needs.firmar.result != 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ env.TAG }}" --prerelease=false --latest
