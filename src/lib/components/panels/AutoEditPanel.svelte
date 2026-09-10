@@ -65,6 +65,7 @@
         <span class="font-medium">Vídeo montado</span>
       </div>
       <ul class="space-y-1 text-muted">
+        {#if r.mounted}<li>· {r.mounted} vídeos montados en orden de grabación</li>{/if}
         {#if r.highlights}
           <li>
             · {r.highlights.picks} momentos escogidos ·
@@ -128,6 +129,16 @@
     {/if}
 
     <div class="flex flex-col gap-2 text-xs">
+      <label class="row">
+        <input type="checkbox" class="accent-accent" bind:checked={o.useAllMedia} /> Montar todo lo de Medios
+      </label>
+      {#if o.useAllMedia}
+        <p class="sub text-[10px] leading-snug">
+          No hace falta arrastrar nada antes: coge los vídeos de la lista y los pone en orden de
+          grabación.
+        </p>
+      {/if}
+
       <label class="row">
         <input type="checkbox" class="accent-accent" bind:checked={o.selectHighlights} /> Escoger los mejores momentos
       </label>

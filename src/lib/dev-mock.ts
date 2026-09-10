@@ -37,6 +37,8 @@ function fake(
     videoStreamCount: video ? 1 : 0,
     audioStreamCount: audio ? 1 : 0,
     isImage,
+    // Fechas escalonadas para poder probar el orden cronológico.
+    recordedAt: new Date(Date.UTC(2026, 8, 9, 1, 0, 0) + fileName.length * 60000).toISOString(),
   };
 }
 
@@ -100,6 +102,13 @@ export function installDevMock() {
         const loudness = times.map((_, i) => 0.1 + 0.8 * (pico(i, n * 0.15) + pico(i, n * 0.5) + pico(i, n * 0.85)));
         return { times, loudness, motion: loudness.map((v) => v * 0.5), cuts: [] };
       }
+      case "make_filmstrip":
+        // En modo navegador se sirve una tira de ejemplo desde static.
+        return "/dev-media/tira.jpg";
+      case "make_proxy":
+        return String(args.path);
+      case "proxy_for":
+        return null;
       case "builtin_sfx": {
         const cat: [string, string, string][] = [
           ["whoosh-corto", "Whoosh corto", "Transiciones"],

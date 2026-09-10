@@ -35,6 +35,8 @@ export interface MediaInfo {
   audioStreamCount: number;
   /** true para imágenes y stickers: van a la pista de parches. */
   isImage: boolean;
+  /** Cuándo se grabó (ISO 8601), para montar en orden cronológico. */
+  recordedAt: string | null;
 }
 
 export const VIDEO_EXTENSIONS = [

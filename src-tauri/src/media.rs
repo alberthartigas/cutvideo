@@ -22,6 +22,10 @@ pub struct MediaInfo {
     pub audio_stream_count: usize,
     /// true para PNG/JPG/WebP/GIF: son parches, no clips de vídeo.
     pub is_image: bool,
+    /// Cuándo se grabó, en ISO 8601. Sale de los metadatos del archivo y sirve
+    /// para montar el material en el orden en que ocurrió; si no los trae, se
+    /// usa la fecha del archivo, que es lo más parecido que hay.
+    pub recorded_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +69,8 @@ struct FfprobeFormat {
     duration: Option<String>,
     size: Option<String>,
     bit_rate: Option<String>,
+    #[serde(default)]
+    tags: HashMap<String, Value>,
 }
 
 #[derive(Deserialize, Default)]
@@ -126,6 +132,50 @@ fn parse_ratio(s: &Option<String>) -> Option<f64> {
 }
 
 /// La rotación puede venir en `side_data_list[].rotation` (ffprobe moderno)
+/// Fecha de grabación: primero la del contenedor, luego la de la pista de
+/// vídeo, y como último recurso la de creación del archivo en disco.
+fn recorded_at(format: &FfprobeFormat, streams: &[FfprobeStream], path: &Path) -> Option<String> {
+    let de_tags = |t: &HashMap<String, Value>| {
+        t.get("creation_time")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty() && !s.starts_with("1970"))
+            .map(str::to_string)
+    };
+    de_tags(&format.tags)
+        .or_else(|| streams.iter().find_map(|s| de_tags(&s.tags)))
+        .or_else(|| {
+            let meta = std::fs::metadata(path).ok()?;
+            let t = meta.created().or_else(|_| meta.modified()).ok()?;
+            let secs = t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+            // ISO 8601 sin depender de una librería de fechas.
+            Some(iso_utc(secs))
+        })
+}
+
+/// Segundos desde 1970 a "AAAA-MM-DDTHH:MM:SSZ".
+fn iso_utc(secs: u64) -> String {
+    let (mut dias, resto) = ((secs / 86400) as i64, secs % 86400);
+    let (h, m, s) = (resto / 3600, (resto % 3600) / 60, resto % 60);
+    let mut anio = 1970;
+    loop {
+        let bisiesto = (anio % 4 == 0 && anio % 100 != 0) || anio % 400 == 0;
+        let en_anio = if bisiesto { 366 } else { 365 };
+        if dias < en_anio {
+            break;
+        }
+        dias -= en_anio;
+        anio += 1;
+    }
+    let bisiesto = (anio % 4 == 0 && anio % 100 != 0) || anio % 400 == 0;
+    let meses = [31, if bisiesto { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut mes = 0;
+    while mes < 12 && dias >= meses[mes] {
+        dias -= meses[mes];
+        mes += 1;
+    }
+    format!("{anio:04}-{:02}-{:02}T{h:02}:{m:02}:{s:02}Z", mes + 1, dias + 1)
+}
+
 /// o en `tags.rotate` (archivos antiguos). Puede ser negativa (-90).
 fn rotation_of(stream: &FfprobeStream) -> i32 {
     let raw = stream
@@ -274,5 +324,25 @@ pub async fn probe(app: &AppHandle, path: &str) -> Result<MediaInfo, String> {
         video_stream_count: video_streams.len(),
         audio_stream_count: audio_streams.len(),
         is_image,
+        recorded_at: recorded_at(&raw.format, &raw.streams, file),
     })
+}
+
+#[cfg(test)]
+mod fechas {
+    use super::iso_utc;
+
+    #[test]
+    fn convierte_segundos_a_iso() {
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_utc(86399), "1970-01-01T23:59:59Z");
+        assert_eq!(iso_utc(86400), "1970-01-02T00:00:00Z");
+        // 29 de febrero de 2024: si el año bisiesto está mal, aquí se ve.
+        assert_eq!(iso_utc(1_709_164_800), "2024-02-29T00:00:00Z");
+        assert_eq!(iso_utc(1_709_251_200), "2024-03-01T00:00:00Z");
+        // 2100 no es bisiesto aunque sea múltiplo de 4.
+        assert_eq!(iso_utc(4_107_542_400), "2100-03-01T00:00:00Z");
+        // Una fecha cualquiera, contrastada aparte.
+        assert_eq!(iso_utc(1_757_379_660), "2025-09-09T01:01:00Z");
+    }
 }

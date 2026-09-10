@@ -138,6 +138,8 @@ export function localPlan(words: Word[], duration: number, subtitleStyle: string
 }
 
 export interface AutoEditOptions {
+  /** Monta lo que haya en Medios sin usar, en orden de grabación. */
+  useAllMedia: boolean;
   /** Analiza el material y se queda solo con los mejores momentos. */
   selectHighlights: boolean;
   /** A cuántos segundos dejarlo. */
@@ -173,6 +175,7 @@ export interface AutoEditOptions {
 }
 
 export const DEFAULT_AUTOEDIT: AutoEditOptions = {
+  useAllMedia: true,
   selectHighlights: true,
   targetSeconds: 60,
   removeSilences: true,
@@ -202,6 +205,8 @@ export interface AutoEditResult {
   transitions: number;
   subtitles: number;
   texts: number;
+  /** Vídeos que se han subido al montaje desde la lista de medios. */
+  mounted: number;
   /** Momentos escogidos y a cuánto quedó el vídeo. */
   highlights: { picks: number; seconds: number; originalSeconds: number } | null;
   /** Título de la pista de música que se ha puesto, si se ha puesto alguna. */
@@ -299,6 +304,7 @@ export async function runAutoEdit(
     transitions: 0,
     subtitles: 0,
     texts: 0,
+    mounted: 0,
     highlights: null,
     music: null,
     layers: { chromaed: 0, cutout: 0, pip: 0, added: 0 },
@@ -306,7 +312,40 @@ export async function runAutoEdit(
     plan: null,
     notes: [],
   };
-  if (project.videoTrack.clips.length === 0) throw new Error("No hay clips de vídeo en el timeline");
+  // 0) Subir al montaje lo que esté en Medios y no se haya puesto.
+  //
+  // Así no hace falta arrastrar nada antes: se importa y se pulsa autoeditar.
+  // El orden es el de grabación, que es en el que pasaron las cosas; si un
+  // archivo no trae fecha se usa la del archivo en disco y, en último caso,
+  // el orden en que se importó.
+  if (options.useAllMedia) {
+    const yaPuestos = new Set(project.videoTrack.clips.map((c) => c.mediaPath));
+    const pendientes = project.media
+      .filter((m) => m.video && !m.isImage && !yaPuestos.has(m.path))
+      .map((m, i) => ({ m, i }))
+      .sort((a, b) => {
+        const fa = a.m.recordedAt ?? "";
+        const fb = b.m.recordedAt ?? "";
+        if (fa && fb && fa !== fb) return fa < fb ? -1 : 1;
+        if (fa !== fb) return fa ? -1 : 1;
+        return a.i - b.i;
+      })
+      .map(({ m }) => m);
+    if (pendientes.length) {
+      onStep(`Montando ${pendientes.length} vídeos en orden…`);
+      for (const m of pendientes) project.addClip(m);
+      result.mounted = pendientes.length;
+      if (pendientes.some((m) => !m.recordedAt)) {
+        result.notes.push(
+          "Algunos vídeos no traen fecha de grabación: esos van en el orden en que se importaron.",
+        );
+      }
+    }
+  }
+
+  if (project.videoTrack.clips.length === 0) {
+    throw new Error("No hay vídeos: importa algo en Medios antes de autoeditar");
+  }
 
   // 1) Ritmo de la música, si hay algo en la pista de audio.
   let beats: number[] = [];

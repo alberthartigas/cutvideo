@@ -80,6 +80,7 @@ pub fn run() {
             highlights::analyze_highlights,
             proxies::proxy_for,
             proxies::make_proxy,
+            proxies::make_filmstrip,
             proxies::clear_proxies,
             sfx::builtin_sfx,
             projects::projects_storage,
