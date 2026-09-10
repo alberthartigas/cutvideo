@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isOverlayTrack } from "$lib/layers";
   import { CheckCheck, RefreshCw, TriangleAlert } from "@lucide/svelte";
   import PanelShell from "./PanelShell.svelte";
   import EffectThumb from "../thumbs/EffectThumb.svelte";
@@ -19,7 +20,7 @@
   // Sin nada en la pista de fondo, quitar el verde solo deja negro.
   // En una capa superpuesta lo que se ve por detrás es el vídeo principal;
   // en la pista principal hace falta poner algo en F1.
-  let enCapa = $derived(["o1", "o2"].includes(project.selected?.track.id ?? ""));
+  let enCapa = $derived(isOverlayTrack(project.selected?.track.id ?? ""));
   let noBackground = $derived(
     chroma.enabled && !enCapa && project.backgroundTrack.clips.length === 0,
   );

@@ -3,6 +3,7 @@
   import { Pause, Play, SkipBack } from "@lucide/svelte";
   import { project, type Clip, type Track } from "$lib/project.svelte";
   import { proxies } from "$lib/proxies.svelte";
+  import { clock } from "$lib/playback-clock";
   import { formatDuration } from "$lib/format";
   import { renderTextClips } from "$lib/text/render";
   import { transitionFrame } from "$lib/transitions/presets";
@@ -238,7 +239,8 @@
     syncAudio(t0, true);
     let raf = requestAnimationFrame(function tick() {
       let t: number;
-      const m = master;
+      // Manda V1; si está vacía, la primera capa que esté sonando.
+      const m = master ?? clock.fallback();
       if (m && !m.el.paused && !m.el.seeking && m.el.readyState >= 2) {
         // El vídeo manda; el temporizador se realinea por si hay que tirar de
         // él en el siguiente hueco (transición, tramo sin vídeo).

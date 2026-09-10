@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { FolderOpen, Image as ImageIcon, Layers, Music, Plus } from "@lucide/svelte";
+  import { FolderOpen, Image as ImageIcon, Layers, Music, Plus, Trash2 } from "@lucide/svelte";
+  import { openMenu } from "$lib/context-menu.svelte";
   import PanelShell from "./PanelShell.svelte";
   import { project } from "$lib/project.svelte";
   import { formatDuration } from "$lib/format";
@@ -42,6 +43,30 @@
     return Math.min(2.2, Math.max(0.4, w / h));
   }
 
+  /** Quita el archivo de la lista y sus clips del timeline. */
+  function quitar(item: MediaInfo) {
+    const clips = project.removeMedia(item.path);
+    if (selected?.path === item.path) selected = null;
+    aviso = clips
+      ? `«${item.fileName}» quitado, con ${clips} ${clips === 1 ? "clip" : "clips"} del timeline. ⌘Z lo devuelve.`
+      : null;
+  }
+  let aviso = $state<string | null>(null);
+
+  function menuMedio(e: MouseEvent, item: MediaInfo) {
+    selected = item;
+    openMenu(e, [
+      { label: "Añadir al timeline", icon: Plus, run: () => project.addClip(item) },
+      ...(item.video
+        ? [
+            { label: "Poner de fondo (F1)", icon: ImageIcon, run: () => project.addBackground(item) },
+            { label: "Poner como capa (O1/O2)", icon: Layers, run: () => project.addOverlay(item) },
+          ]
+        : []),
+      { label: "Quitar de Medios", icon: Trash2, danger: true, run: () => quitar(item) },
+    ]);
+  }
+
   /** Fotograma que se enseña de cada vídeo; cambia al pasar el ratón. */
   let hover = $state<Record<string, number>>({});
   function barrer(e: PointerEvent, path: string) {
@@ -76,6 +101,9 @@
   {#if error}
     <p class="mb-2 rounded-md bg-red-500/10 px-2 py-1.5 text-xs text-red-500">{error}</p>
   {/if}
+  {#if aviso}
+    <p class="mb-2 rounded-md bg-panel-2 px-2 py-1.5 text-[11px] text-muted">{aviso}</p>
+  {/if}
 
   {#if project.media.length > 1}
     <label class="mb-2 flex items-center gap-2 px-1 text-[11px] text-muted">
@@ -92,7 +120,7 @@
     {#each project.media as item (item.path)}
       {@const tira = filmstrips.src(item.path)}
       {@const prop = aspectoDe(item)}
-      <li class="group relative" style="width:{Math.round(thumb * prop)}px">
+      <li class="group relative" style="width:{Math.round(thumb * prop)}px" oncontextmenu={(e) => menuMedio(e, item)}>
         <button
           class="media-item !p-1"
           class:active={selected?.path === item.path}
@@ -152,6 +180,13 @@
             onclick={() => project.addClip(item)}
           >
             <Plus size={13} />
+          </button>
+          <button
+            class="tool h-6 w-6 justify-center bg-panel/90 px-0 text-red-500"
+            title="Quitar de Medios (y sus clips del timeline)"
+            onclick={() => quitar(item)}
+          >
+            <Trash2 size={12} />
           </button>
         </div>
       </li>

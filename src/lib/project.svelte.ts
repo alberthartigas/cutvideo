@@ -6,7 +6,7 @@ import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffect
 import { DEFAULT_CHROMA, type ChromaKey } from "$lib/effects/chroma";
 import { DEFAULT_PATCH, type PatchData } from "$lib/patches/types";
 import { frameForAspect, type AspectId, type FitMode } from "$lib/aspect";
-import { DEFAULT_LAYOUT, OVERLAY_TRACK_IDS, type ClipLayout } from "$lib/layers";
+import { DEFAULT_LAYOUT, OVERLAY_TRACK_IDS, isOverlayTrack, type ClipLayout } from "$lib/layers";
 
 /** Duración por defecto de un parche recién puesto (s). */
 const PATCH_DEFAULT_DURATION = 4;
@@ -31,6 +31,10 @@ export interface Clip {
   out: number;
   /** Solo en clips de texto (kind === "text"): `in` es siempre 0 y `out` la duración. */
   text?: TextData;
+  /** Vídeo sin sonido (por ejemplo, porque su audio se separó a la pista A1). */
+  muted?: boolean;
+  /** Solo en clips de audio: id del clip de vídeo del que se separó, para poder volver a unirlos. */
+  detachedFrom?: string;
   /** Pista magnética: transición hacia el clip siguiente (los dos clips se solapan esa duración). */
   transition?: { id: string; duration: number };
   /** Filtro de color y ajustes del clip. */
@@ -112,9 +116,11 @@ export function defaultTracks(): Track[] {
     { id: "t1", kind: "text", name: "T1", magnetic: false, clips: [] },
     { id: "s1", kind: "text", name: "S1", magnetic: false, clips: [] },
     { id: "p1", kind: "image", name: "P1", magnetic: false, clips: [] },
-    // Capas superpuestas: se ven por encima del vídeo principal (O1 tapa a O2).
-    { id: "o1", kind: "video", name: "O1", magnetic: false, clips: [] },
+    // Capas superpuestas, de arriba abajo: O1 va justo encima de V1 y es la
+    // primera que se llena; O2 y O3 van subiendo. Las vacías no se enseñan.
+    { id: "o3", kind: "video", name: "O3", magnetic: false, clips: [] },
     { id: "o2", kind: "video", name: "O2", magnetic: false, clips: [] },
+    { id: "o1", kind: "video", name: "O1", magnetic: false, clips: [] },
     { id: "v1", kind: "video", name: "V1", magnetic: true, clips: [] },
     { id: "f1", kind: "video", name: "F1", magnetic: false, clips: [] },
     { id: "a1", kind: "audio", name: "A1", magnetic: false, clips: [] },
@@ -132,7 +138,38 @@ class ProjectStore {
   aspect = $state<AspectId>("original");
   /** Qué hacer cuando el vídeo no encaja en esa proporción. */
   fit = $state<FitMode>("cover");
-  selectedId = $state<string | null>(null);
+  /**
+   * Selección. `selectedId` es el clip "principal" (el del inspector) y
+   * `selectedIds` todos los marcados: con Shift o ⌘ se van sumando, y borrar
+   * o mover actúa sobre todos.
+   */
+  #primary = $state<string | null>(null);
+  selectedIds = $state<string[]>([]);
+  get selectedId(): string | null {
+    return this.#primary;
+  }
+  set selectedId(id: string | null) {
+    this.#primary = id;
+    this.selectedIds = id ? [id] : [];
+  }
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+  /** Suma o quita un clip de la selección sin tocar los demás. */
+  toggleSelect(id: string) {
+    if (this.selectedIds.includes(id)) {
+      this.selectedIds = this.selectedIds.filter((x) => x !== id);
+      this.#primary = this.selectedIds[this.selectedIds.length - 1] ?? null;
+    } else {
+      this.selectedIds = [...this.selectedIds, id];
+      this.#primary = id;
+    }
+  }
+  selectAll() {
+    const ids = this.tracks.flatMap((t) => t.clips.map((c) => c.id));
+    this.selectedIds = ids;
+    this.#primary = ids[ids.length - 1] ?? null;
+  }
   /** true mientras se reordena un clip arrastrándolo (los demás se animan al hacerle sitio). */
   reordering = $state(false);
   canUndo = $state(false);
@@ -353,10 +390,12 @@ class ProjectStore {
     if (!info.video) return null;
     const duration = info.isImage ? 4 : info.durationSec;
     const asked = trackId ? this.tracks.find((t) => t.id === trackId) : undefined;
-    const libre = this.overlayTracks.find(
+    // Se llena de abajo arriba: la primera capa libre justo encima de V1.
+    const abajoArriba = [...this.overlayTracks].reverse();
+    const libre = abajoArriba.find(
       (t) => !t.clips.some((c) => at < clipEnd(c) && at + duration > c.start),
     );
-    const track = asked ?? libre ?? this.overlayTracks[0];
+    const track = asked ?? libre ?? abajoArriba[0];
     const clip: Clip = {
       id: newId(),
       mediaPath: info.path,
@@ -762,14 +801,126 @@ class ProjectStore {
     return true;
   }
 
+  /** Borra un clip concreto, esté o no seleccionado. */
+  deleteClip(id: string): boolean {
+    this.selectedId = id;
+    return this.deleteSelected();
+  }
+
+  /**
+   * Quita un archivo de la lista de Medios y, con él, todos los clips que lo
+   * usaban en cualquier pista. Devuelve cuántos clips se han ido, para poder
+   * avisarlo. Se deshace con ⌘Z como todo lo demás.
+   */
+  removeMedia(path: string): number {
+    this.commit();
+    let quitados = 0;
+    for (const track of this.tracks) {
+      const antes = track.clips.length;
+      track.clips = track.clips.filter((c) => c.mediaPath !== path);
+      quitados += antes - track.clips.length;
+      if (track.magnetic && antes !== track.clips.length) this.#relayout(track);
+    }
+    this.media = this.media.filter((m) => m.path !== path);
+    if (this.selectedId && !this.findClip(this.selectedId)) this.selectedId = null;
+    return quitados;
+  }
+
+  /** Borra todos los clips seleccionados (uno o varios). */
   deleteSelected(): boolean {
-    const ref = this.selected;
-    if (!ref) return false;
+    const ids = new Set(this.selectedIds.length ? this.selectedIds : this.selectedId ? [this.selectedId] : []);
+    if (!ids.size) return false;
+    this.commit();
+    let borrados = 0;
+    for (const track of this.tracks) {
+      const antes = track.clips.length;
+      track.clips = track.clips.filter((c) => !ids.has(c.id));
+      borrados += antes - track.clips.length;
+      if (track.magnetic && antes !== track.clips.length) this.#relayout(track);
+    }
+    this.selectedId = null;
+    return borrados > 0;
+  }
+
+  /**
+   * Cambia un clip de pista, por ejemplo de una capa a V1 o al revés. Solo
+   * entre pistas del mismo tipo: un vídeo no puede caer en la de subtítulos.
+   */
+  moveClipToTrack(id: string, trackId: string, start: number): boolean {
+    const ref = this.findClip(id);
+    const dest = this.tracks.find((t) => t.id === trackId);
+    if (!ref || !dest || dest === ref.track || dest.kind !== ref.track.kind) return false;
     this.commit();
     ref.track.clips.splice(ref.index, 1);
     if (ref.track.magnetic) this.#relayout(ref.track);
-    this.selectedId = null;
+    const clip = ref.clip;
+    // La transición era con el vecino de la pista de antes.
+    clip.transition = undefined;
+    // Al entrar en una capa empieza a pantalla completa; al salir, la
+    // colocación ya no pinta nada.
+    if (isOverlayTrack(dest.id)) clip.layout ??= { ...DEFAULT_LAYOUT };
+    else delete clip.layout;
+    if (dest.magnetic) {
+      dest.clips.splice(this.#indexAt(dest, start), 0, clip);
+      this.#relayout(dest);
+    } else {
+      clip.start = this.#freeStart(dest, clipDuration(clip), Math.max(0, start));
+      dest.clips.push(clip);
+      this.#sort(dest);
+    }
+    this.selectedId = clip.id;
     return true;
+  }
+
+  /**
+   * Separa el audio de un clip de vídeo a la pista A1, para poder tratarlo
+   * aparte o borrarlo y quedarse solo con la imagen. El vídeo queda mudo y
+   * apunta al trozo de audio para poder volver a unirlos.
+   */
+  detachAudio(id: string): Clip | null {
+    const ref = this.findClip(id);
+    if (!ref || ref.clip.kind !== "video" || ref.clip.muted) return null;
+    if (!this.mediaOf(ref.clip)?.audio) return null;
+    this.commit();
+    ref.clip.muted = true;
+    const audio: Clip = {
+      id: newId(),
+      mediaPath: ref.clip.mediaPath,
+      name: ref.clip.name,
+      kind: "audio",
+      sourceDuration: ref.clip.sourceDuration,
+      fps: ref.clip.fps,
+      start: ref.clip.start,
+      in: ref.clip.in,
+      out: ref.clip.out,
+      detachedFrom: ref.clip.id,
+    };
+    const track = this.audioTrack;
+    audio.start = this.#freeStart(track, clipDuration(audio), ref.clip.start);
+    track.clips.push(audio);
+    this.#sort(track);
+    return audio;
+  }
+
+  /** Vuelve a unir el audio con su vídeo: quita el trozo de A1 y el vídeo vuelve a sonar. */
+  reattachAudio(id: string): boolean {
+    const ref = this.findClip(id);
+    if (!ref) return false;
+    const videoId = ref.clip.kind === "audio" ? ref.clip.detachedFrom : ref.clip.id;
+    if (!videoId) return false;
+    const video = this.findClip(videoId);
+    if (!video) return false;
+    this.commit();
+    const a1 = this.audioTrack;
+    a1.clips = a1.clips.filter((c) => c.detachedFrom !== videoId);
+    video.clip.muted = false;
+    this.selectedId = videoId;
+    return true;
+  }
+
+  /** ¿Tiene este vídeo su audio separado en A1? */
+  hasDetachedAudio(id: string): boolean {
+    return this.audioTrack.clips.some((c) => c.detachedFrom === id);
   }
 
   // ---- Transporte ----

@@ -5,6 +5,10 @@
   import { DEFAULT_LAYOUT } from "$lib/layers";
   import { LayerRenderer } from "$lib/preview/layer-gl";
   import { segmenter } from "$lib/segment/segmenter.svelte";
+  import { clock } from "$lib/playback-clock";
+
+  // Si no hay nada en V1, esta capa puede llevar el reloj del preview.
+  $effect(() => () => clock.set(track.id, null));
 
   /**
    * Una capa de vídeo del preview (fondo o superpuesta). Se encarga de
@@ -53,6 +57,7 @@
     if (!el) return;
     if (!clip) {
       if (!el.paused) el.pause();
+      clock.set(track.id, null);
       return;
     }
     const src = proxies.src(clip.mediaPath);
@@ -60,6 +65,7 @@
       el.dataset.src = src;
       el.src = src;
     }
+    clock.set(track.id, { el, clip });
     const expected = clip.in + (time - clip.start);
     // Reproduciendo, solo se corrige un desvío real: cada seek decodifica
     // desde el keyframe anterior y con 0,15 s de margen se hacían a cada rato.
@@ -131,7 +137,7 @@
     preload="auto"
     onloadeddata={pintar}
     onseeked={pintar}
-    muted={track.id !== "v1"}
+    muted={clip?.muted === true}
     class="absolute inset-0 h-full w-full"
     style="object-fit:{fit};visibility:{clip && !usaCanvas ? 'visible' : 'hidden'}"
   ></video>

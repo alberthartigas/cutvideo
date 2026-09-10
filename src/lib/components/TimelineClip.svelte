@@ -1,20 +1,57 @@
 <script lang="ts">
-  import {
-    clipDuration,
-    effectiveTransition,
-    nearestSnap,
-    project,
-    type Clip,
-    type Track,
-  } from "$lib/project.svelte";
+  import { clipDuration, effectiveTransition, nearestSnap, project, type Clip, type Track, MIN_CLIP, clipEnd } from "$lib/project.svelte";
   import { startDrag } from "$lib/drag";
+  import { openMenu } from "$lib/context-menu.svelte";
+  import { drop } from "$lib/media-drop.svelte";
+  import { AudioLines, Link2, Scissors, Trash2, Unlink } from "@lucide/svelte";
+
+  /** Acciones básicas sobre este clip, para quien corrige a mano la autoedición. */
+  function menuClip(e: MouseEvent) {
+    // Si el clip ya está en una selección múltiple, se conserva: "Eliminar"
+    // borra todos los marcados.
+    if (!project.isSelected(clip.id)) project.selectedId = clip.id;
+    const varios = project.selectedIds.length > 1;
+    const t = project.playhead;
+    const dentro = t > clip.start + MIN_CLIP && t < clipEnd(clip) - MIN_CLIP;
+    const audioSeparado = clip.kind === "video" && (clip.muted === true || project.hasDetachedAudio(clip.id));
+    const puedeSeparar = clip.kind === "video" && !clip.muted && !!project.mediaOf(clip)?.audio;
+    const esAudioSeparado = clip.kind === "audio" && !!clip.detachedFrom;
+    openMenu(e, [
+      {
+        label: "Cortar aquí",
+        icon: Scissors,
+        shortcut: "S",
+        disabled: !dentro,
+        run: () => {
+          project.selectedId = clip.id;
+          project.splitAtPlayhead();
+        },
+      },
+      ...(clip.transition
+        ? [{ label: "Quitar transición", icon: Unlink, run: () => project.setTransition(clip.id, null) }]
+        : []),
+      ...(puedeSeparar
+        ? [{ label: "Separar audio a A1", icon: AudioLines, run: () => project.detachAudio(clip.id) }]
+        : []),
+      ...(audioSeparado || esAudioSeparado
+        ? [{ label: "Volver a unir audio y vídeo", icon: Link2, run: () => project.reattachAudio(clip.id) }]
+        : []),
+      {
+        label: varios ? `Eliminar ${project.selectedIds.length} clips` : "Eliminar",
+        icon: Trash2,
+        shortcut: "⌫",
+        danger: true,
+        run: () => (varios ? project.deleteSelected() : project.deleteClip(clip.id)),
+      },
+    ]);
+  }
   import { formatDuration } from "$lib/format";
 
   let { clip, track }: { clip: Clip; track: Track } = $props();
 
   const SNAP_PX = 8;
 
-  let selected = $derived(project.selectedId === clip.id);
+  let selected = $derived(project.isSelected(clip.id));
   let hasNext = $derived(track.magnetic && track.clips.indexOf(clip) < track.clips.length - 1);
   let transitionWidth = $derived.by(() => {
     const next = project.nextClip(clip);
@@ -29,17 +66,35 @@
   function onBodyDown(e: PointerEvent) {
     if (e.button !== 0) return;
     e.stopPropagation();
+    // Con Shift o ⌘ se suma a la selección en vez de sustituirla.
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      project.toggleSelect(clip.id);
+      return;
+    }
     project.selectedId = clip.id;
     const grabStart = clip.start;
+    /** Dónde está el borde izquierdo ahora mismo, para soltarlo en otra pista. */
+    let bordeActual = grabStart;
+    /** Pista de destino si se está arrastrando sobre otra distinta. */
+    let destino: string | null = null;
     startDrag(e, {
       onStart() {
         project.commit();
         busy = true;
         project.reordering = track.magnetic;
       },
-      onMove(dx) {
+      onMove(dx, _dy, ev) {
         const zoom = project.zoom;
         const leftEdge = grabStart + dx / zoom;
+        bordeActual = leftEdge;
+        // ¿Hay otra pista del mismo tipo bajo el ratón? Se resalta como destino.
+        const fila = document
+          .elementsFromPoint(ev.clientX, ev.clientY)
+          .find((el) => el instanceof HTMLElement && el.dataset.track) as HTMLElement | undefined;
+        const id = fila?.dataset.track ?? null;
+        const otra = id && id !== track.id ? project.tracks.find((t) => t.id === id) : null;
+        destino = otra && otra.kind === track.kind ? otra.id : null;
+        drop.target = destino ? { trackId: destino, time: Math.max(0, leftEdge) } : null;
         if (track.magnetic) {
           // El clip sigue al ratón; los demás se apartan para hacerle sitio.
           project.reorderClipAt(clip.id, leftEdge);
@@ -57,6 +112,16 @@
         }
       },
       onEnd() {
+        drop.target = null;
+        if (destino) {
+          const d = destino;
+          destino = null;
+          dragOffset = null;
+          busy = false;
+          project.reordering = false;
+          project.moveClipToTrack(clip.id, d, bordeActual);
+          return;
+        }
         dragOffset = null;
         busy = false;
         project.reordering = false;
@@ -111,11 +176,12 @@
   aria-selected={selected}
   tabindex="-1"
   onpointerdown={onBodyDown}
+  oncontextmenu={menuClip}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="handle left" onpointerdown={(e) => onHandleDown(e, "in")}></div>
   <div class="body">
-    <span class="name">{clip.name}</span>
+    <span class="name">{clip.muted ? "🔇 " : ""}{clip.name}</span>
     <span class="dur">{formatDuration(clipDuration(clip))}</span>
   </div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -14,6 +14,7 @@
   import ExportDialog from "$lib/components/ExportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import AboutDialog from "$lib/components/AboutDialog.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
   import SubtitlesDialog from "$lib/components/SubtitlesDialog.svelte";
   import MediaPanel from "$lib/components/panels/MediaPanel.svelte";
   import AudioPanel from "$lib/components/panels/AudioPanel.svelte";
@@ -33,6 +34,7 @@
   import Splitter from "$lib/components/Splitter.svelte";
   import { startDrag } from "$lib/drag";
   import { drop } from "$lib/media-drop.svelte";
+  import { isOverlayTrack } from "$lib/layers";
   import { proxies } from "$lib/proxies.svelte";
 
   let timeline = $state<ReturnType<typeof Timeline>>();
@@ -53,7 +55,7 @@
     inspectorClip && project.selected?.track.magnetic ? project.nextClip(inspectorClip) : null,
   );
   // Las capas superpuestas se colocan (tamaño, posición) y pueden recortarse.
-  let esCapa = $derived(["o1", "o2"].includes(project.selected?.track.id ?? ""));
+  let esCapa = $derived(isOverlayTrack(project.selected?.track.id ?? ""));
 
   // Las miniaturas de transiciones y efectos usan frames reales del proyecto.
   $effect(() => {
@@ -119,7 +121,7 @@
    */
   function soltarMedio(item: MediaInfo, hit: { trackId: string; time: number }) {
     if (hit.trackId === "f1") project.addBackground(item, hit.time);
-    else if (hit.trackId === "o1" || hit.trackId === "o2") project.addOverlay(item, hit.time, hit.trackId);
+    else if (isOverlayTrack(hit.trackId)) project.addOverlay(item, hit.time, hit.trackId);
     else if (hit.trackId === "p1") project.addPatch(item, hit.time);
     else project.addClip(item, hit.time);
   }
@@ -145,6 +147,12 @@
   function onKeyDown(e: KeyboardEvent) {
     if (keyHandledElsewhere(e)) return;
     const mod = e.metaKey || e.ctrlKey;
+    // ⌘A selecciona todos los clips, para borrarlos o moverlos de golpe.
+    if (mod && e.key.toLowerCase() === "a" && !keyHandledElsewhere(e)) {
+      e.preventDefault();
+      project.selectAll();
+      return;
+    }
     const key = e.key.toLowerCase();
 
     if (mod && key === "z") {
@@ -212,6 +220,17 @@
   // donde antes se quedaban sin hacer y el preview seguía yendo a trompicones.
   $effect(() => void proxies.prepare(project.media));
 
+  /**
+   * El menú nativo del WebView solo trae "Recargar" y despista; se corta en
+   * todo el editor salvo en los campos de texto, donde copiar y pegar sí hace
+   * falta. Los clips y los medios abren el suyo propio.
+   */
+  function bloquearMenuNativo(e: MouseEvent) {
+    const t = e.target instanceof Element ? e.target : null;
+    if (t?.closest("input, textarea, [contenteditable]")) return;
+    e.preventDefault();
+  }
+
   onMount(() => {
     ffmpegVersion()
       .then((v) => (ffmpeg = { ok: true, text: `FFmpeg ${v}` }))
@@ -248,7 +267,8 @@
 {#if !session.open}
   <StartScreen />
 {:else}
-<div class="flex h-screen flex-col bg-bg text-text">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="flex h-screen flex-col bg-bg text-text" oncontextmenu={bloquearMenuNativo}>
   <TitleBar />
 
   <div class="flex min-h-0 flex-1">
@@ -367,3 +387,4 @@
 {#if ui.aboutOpen}
   <AboutDialog />
 {/if}
+<ContextMenu />

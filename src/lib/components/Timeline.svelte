@@ -13,12 +13,27 @@
     Trash2,
     Type,
     Undo2,
+    Unlink,
     ZoomIn,
     ZoomOut,
   } from "@lucide/svelte";
   import { project, ZOOM_MAX, ZOOM_MIN, type Clip, type TrackKind } from "$lib/project.svelte";
   import { startDrag } from "$lib/drag";
   import { drop } from "$lib/media-drop.svelte";
+  import { isOverlayTrack } from "$lib/layers";
+
+  /**
+   * Las capas superpuestas solo se enseñan si tienen algo, más una vacía por
+   * encima de la última usada para poder soltar ahí. Tres filas vacías
+   * comiéndose el timeline eran demasiado.
+   */
+  let visibles = $derived.by(() => {
+    const abajoArriba = [...project.overlayTracks].reverse();
+    const usadas = new Set(abajoArriba.filter((t) => t.clips.length > 0).map((t) => t.id));
+    const ultimaUsada = abajoArriba.map((t) => t.id).reduce((m, id, i) => (usadas.has(id) ? i : m), -1);
+    const libre = abajoArriba.find((t, i) => i > ultimaUsada && !t.clips.length)?.id;
+    return project.tracks.filter((t) => !isOverlayTrack(t.id) || usadas.has(t.id) || t.id === libre);
+  });
   import { ui } from "$lib/ui.svelte";
   import TimelineClip from "./TimelineClip.svelte";
 
@@ -205,11 +220,35 @@
     </div>
   </div>
 
-  <div class="grid min-h-0 flex-1 grid-cols-[44px_1fr] overflow-y-auto">
+  <div class="grid min-h-0 flex-1 grid-cols-[36px_44px_1fr] overflow-y-auto">
+    <!-- Herramientas básicas, a mano para quien corrige la autoedición. -->
+    <div class="rail sticky top-0 flex flex-col items-center gap-1 self-start border-r border-border bg-panel-2 py-1.5">
+      <button class="tool h-7 w-7 justify-center px-0" title="Cortar en el playhead (S)" disabled={project.clipCount === 0} onclick={() => project.splitAtPlayhead()}>
+        <Scissors size={14} />
+      </button>
+      <button class="tool h-7 w-7 justify-center px-0" title="Eliminar clip (⌫)" disabled={!project.selected} onclick={() => project.deleteSelected()}>
+        <Trash2 size={14} />
+      </button>
+      <button
+        class="tool h-7 w-7 justify-center px-0"
+        title="Quitar transición del clip seleccionado"
+        disabled={!project.selected?.clip.transition}
+        onclick={() => project.selected && project.setTransition(project.selected.clip.id, null)}
+      >
+        <Unlink size={14} />
+      </button>
+      <div class="my-0.5 h-px w-5 bg-border"></div>
+      <button class="tool h-7 w-7 justify-center px-0" title="Deshacer (⌘Z)" disabled={!project.canUndo} onclick={() => project.undo()}>
+        <Undo2 size={14} />
+      </button>
+      <button class="tool h-7 w-7 justify-center px-0" title="Rehacer (⇧⌘Z)" disabled={!project.canRedo} onclick={() => project.redo()}>
+        <Redo2 size={14} />
+      </button>
+    </div>
     <!-- Cabeceras de pista (fuera del scroll horizontal, pero suben y bajan con él) -->
     <div class="border-r border-border bg-panel-2">
       <div class="sticky top-0 z-10 border-b border-border bg-panel-2" style="height:{RULER_H}px"></div>
-      {#each project.tracks as track (track.id)}
+      {#each visibles as track (track.id)}
         {@const Icon = specialIcons[track.id] ?? trackIcons[track.kind]}
         <div
           class="flex flex-col items-center justify-center gap-0.5 border-b border-border text-[10px] font-semibold text-muted"
@@ -242,7 +281,7 @@
           {/each}
         </div>
 
-        {#each project.tracks as track (track.id)}
+        {#each visibles as track (track.id)}
           <div
             data-track={track.id}
             class="track"

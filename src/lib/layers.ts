@@ -31,5 +31,12 @@ export const LAYOUT_PRESETS: { id: string; label: string; hint: string; layout: 
   { id: "center", label: "Centrado", hint: "Más pequeño, en medio", layout: { x: 0.5, y: 0.5, scale: 0.62 } },
 ];
 
-/** Ids de las pistas que se superponen al vídeo principal, de arriba abajo. */
-export const OVERLAY_TRACK_IDS = ["o1", "o2"] as const;
+/**
+ * Ids de las pistas que se superponen al vídeo principal, de arriba abajo.
+ * O1 es la que está justo encima de V1: la primera capa que se añade cae
+ * ahí, y las siguientes van subiendo. En el timeline solo se enseñan las
+ * que tienen algo más una vacía por encima, para no comerse la pantalla.
+ */
+export const OVERLAY_TRACK_IDS = ["o3", "o2", "o1"] as const;
+
+export const isOverlayTrack = (id: string) => (OVERLAY_TRACK_IDS as readonly string[]).includes(id);

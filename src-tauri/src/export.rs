@@ -525,13 +525,29 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     }
     filters.push(format!("[{last}]format=yuv420p[vout]"));
 
-    if plan.audio.is_empty() {
+    // Todo lo que suena aparte de la pista principal: la pista A1, el fondo
+    // y las capas que tengan audio. Antes las capas iban mudas y el usuario,
+    // con razón, no entendía por qué su clip no sonaba. (input, inicio)
+    let mut extras: Vec<(usize, f64)> = Vec::new();
+    for (j, c) in plan.audio.iter().enumerate() {
+        extras.push((n + j, c.start));
+    }
+    for (k, c) in plan.background.iter().enumerate() {
+        if c.has_audio {
+            extras.push((bg_first + k, c.start));
+        }
+    }
+    for (k, l) in plan.layers.iter().enumerate() {
+        if l.clip.has_audio {
+            extras.push((layer_first + k, l.clip.start));
+        }
+    }
+    if extras.is_empty() {
         filters.push("[acat]anull[aout]".into());
     } else {
         let mut mix = String::from("[acat]");
-        for (j, c) in plan.audio.iter().enumerate() {
-            let k = n + j;
-            let ms = (c.start * 1000.0).round() as u64;
+        for (j, (k, start)) in extras.iter().enumerate() {
+            let ms = (start * 1000.0).round() as u64;
             filters.push(format!(
                 "[{k}:a]asetpts=PTS-STARTPTS,aresample=48000,\
                  aformat=sample_fmts=fltp:channel_layouts=stereo,adelay={ms}:all=1[m{j}]"
@@ -540,7 +556,7 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         }
         filters.push(format!(
             "{mix}amix=inputs={}:duration=longest:normalize=0[aout]",
-            plan.audio.len() + 1
+            extras.len() + 1
         ));
     }
 
@@ -1044,6 +1060,52 @@ mod tests {
         // de magenta ya se ha acabado, así que ahí se ve el vídeo principal.
         let fuera = en("2.5", 40, 190);
         assert!(azul_p(fuera), "la esquina no debía extenderse, dio {fuera:?}");
+    }
+
+    /// Una capa con sonido tiene que oírse en el vídeo final, no solo verse.
+    #[test]
+    fn layer_audio_is_mixed_into_the_export() {
+        let (Ok(ffmpeg), Ok(dir)) = (std::env::var("CUTVIDEO_FFMPEG"), std::env::var("CUTVIDEO_TEST_DIR")) else {
+            eprintln!("saltada: define CUTVIDEO_FFMPEG y CUTVIDEO_TEST_DIR");
+            return;
+        };
+        let p = |name: &str| format!("{dir}/{name}");
+        // Base muda; capa con un tono de 440 Hz.
+        let base = p("aud-base.mp4");
+        let capa = p("aud-capa.mp4");
+        assert!(std::process::Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=160x120:r=25:d=2",
+                   "-c:v", "libx264", "-pix_fmt", "yuv420p", &base])
+            .status().unwrap().success());
+        assert!(std::process::Command::new(&ffmpeg)
+            .args(["-v", "error", "-y",
+                   "-f", "lavfi", "-i", "color=c=red:s=160x120:r=25:d=2",
+                   "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+                   "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", &capa])
+            .status().unwrap().success());
+        let out = p("aud-out.mp4");
+        let plan = ExportPlan {
+            output: out.clone(),
+            width: 160, height: 120, fps: 25.0,
+            video: vec![clip(&base, 0.0, 2.0, 0.0, false)],
+            audio: vec![], background: vec![],
+            layers: vec![ExportLayer {
+                clip: clip(&capa, 0.0, 2.0, 0.0, true),
+                layout: ExportLayout { x: 0.5, y: 0.5, scale: 0.5, opacity: 1.0 },
+                mask: None,
+            }],
+            encoder: "x264".into(), fit: "cover".into(), overlays: vec![],
+        };
+        assert!(std::process::Command::new(&ffmpeg).args(build_args(&plan, Encoder::X264)).status().unwrap().success());
+        let o = std::process::Command::new(&ffmpeg)
+            .args(["-i", &out, "-af", "volumedetect", "-f", "null", "-"])
+            .output().unwrap();
+        let log = String::from_utf8_lossy(&o.stderr);
+        let media: f64 = log.lines()
+            .find_map(|l| l.split("mean_volume:").nth(1))
+            .and_then(|v| v.trim().trim_end_matches(" dB").parse().ok())
+            .expect("volumedetect no dio mean_volume");
+        assert!(media > -40.0, "la capa debía sonar en la exportación; volumen medio {media} dB");
     }
 
     /// La pantalla verde debe dejar ver la pista de fondo por detrás.

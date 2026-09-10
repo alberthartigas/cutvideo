@@ -121,7 +121,7 @@ export function buildExportPlan(
     in: c.in,
     out: c.out,
     start: c.start,
-    hasAudio: project.mediaOf(c)?.audio != null,
+    hasAudio: project.mediaOf(c)?.audio != null && !c.muted,
   });
   const videoClips = project.videoTrack.clips;
   return {
@@ -152,7 +152,7 @@ export function buildExportPlan(
       return {
         clip: {
           ...toClip(c),
-          hasAudio: false, // Las capas van mudas, igual que en el preview.
+          hasAudio: project.mediaOf(c)?.audio != null && !c.muted,
           filters: effectsFfmpeg(c.effects, size.height) || null,
           chroma: chromaFfmpeg(c.effects?.chroma) || null,
         },
