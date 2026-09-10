@@ -47,6 +47,23 @@ const PROVIDERS: &[Provider] = &[
         fallbacks: &["gemini-2.5-flash-lite", "gemini-2.0-flash"],
     },
     Provider {
+        // Ollama expone una API compatible con OpenAI en el propio ordenador.
+        // No lleva clave: si no está abierto, el error lo dice claro.
+        id: "ollama",
+        name: "Ollama (local)",
+        secret: "",
+        url: "http://localhost:11434/v1/chat/completions",
+        model: "qwen2.5:7b-instruct",
+        fallbacks: &[
+            "qwen2.5:14b-instruct",
+            "llama3.1:8b",
+            "llama3.2:3b",
+            "mistral:7b",
+            "gemma2:9b",
+            "phi3.5",
+        ],
+    },
+    Provider {
         id: "openai",
         name: "OpenAI",
         secret: "openai",
@@ -435,7 +452,16 @@ async fn plan_openai_compatible(p: &Provider, key: &str, prompt: &str) -> Result
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("No se pudo conectar con {}: {e}", p.name))?;
+        .map_err(|e| {
+            if p.secret.is_empty() {
+                format!(
+                    "No se ha podido hablar con Ollama en tu ordenador ({e}). Abre la app de Ollama y \
+                     descarga un modelo con `ollama pull qwen2.5:7b-instruct`."
+                )
+            } else {
+                format!("No se pudo conectar con {}: {e}", p.name)
+            }
+        })?;
     let status = response.status();
     let text = response.text().await.map_err(|e| e.to_string())?;
     let parsed: ChatResponse = serde_json::from_str(&text)
@@ -532,9 +558,14 @@ pub async fn ai_edit_plan(app: tauri::AppHandle, request: EditPlanRequest) -> Re
         .iter()
         .find(|p| p.id == request.provider)
         .ok_or_else(|| format!("Servicio de IA desconocido: {}", request.provider))?;
-    let key = secrets::api_key(p.secret)?.ok_or_else(|| {
-        format!("Falta la clave de API de {}. Añádela en Ajustes → Claves de API.", p.name)
-    })?;
+    let key = if p.secret.is_empty() {
+        // Local: no hay clave que pedir, pero la cabecera va igual (se ignora).
+        "local".to_string()
+    } else {
+        secrets::api_key(p.secret)?.ok_or_else(|| {
+            format!("Falta la clave de API de {}. Añádela en Ajustes → Claves de API.", p.name)
+        })?
+    };
     plan_openai_compatible(p, &key, &prompt).await
 }
 
@@ -572,6 +603,22 @@ mod tests {
         assert!(texto.contains("1.0–4.0 s (interés 0.91): \"qué bonito\""));
         assert!(texto.contains("Clip 1 «cena.mov», 18.0 s\n"));
         assert!(texto.contains("unos 20 s"));
+    }
+
+    #[test]
+    fn el_proveedor_local_no_lleva_clave_y_apunta_al_propio_ordenador() {
+        let p = PROVIDERS.iter().find(|p| p.id == "ollama").expect("falta Ollama");
+        assert!(p.secret.is_empty());
+        assert!(p.url.starts_with("http://localhost:11434/"));
+        // La lista de modelos se saca de la misma URL quitando el sufijo.
+        assert_eq!(
+            p.url.strip_suffix("/chat/completions"),
+            Some("http://localhost:11434/v1")
+        );
+        // Los modelos que se instalan en local deben pasar el filtro de texto.
+        assert!(super::es_de_texto("qwen2.5:7b-instruct"));
+        assert!(super::es_de_texto("llama3.1:8b"));
+        assert!(!super::es_de_texto("nomic-embed-text"));
     }
 
     #[test]

@@ -101,6 +101,9 @@ deduce el repositorio del remoto de git, y desde otro sitio no lo encuentra.)
 Cada plataforma sube su propio `latest.json`, así que
 `scripts/merge-latest-json.sh` los junta para que el actualizador vea las dos.
 
+Para probar la app en Windows hay un guion con lo que conviene mirar (y cómo
+poner la IA en local con Ollama): [`docs/pruebas-windows.md`](docs/pruebas-windows.md).
+
 ## Firma de la app (macOS)
 
 `src-tauri/tauri.conf.json` lleva el Developer ID del autor en

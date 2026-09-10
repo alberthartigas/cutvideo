@@ -85,11 +85,12 @@ export const suggestFreeMusic = (query: string) => invoke<FreeTrack[]>("suggest_
 /** Descarga una pista sugerida y devuelve la ruta local donde quedó. */
 export const downloadTrack = (url: string, name: string) => invoke<string>("download_track", { url, name });
 /** Servicio que redacta el plan. "none" no llama a ninguna API. */
-export type AiProvider = "none" | "groq" | "gemini" | "openai" | "anthropic";
+export type AiProvider = "none" | "groq" | "gemini" | "ollama" | "openai" | "anthropic";
 
 export const AI_PROVIDERS: { id: AiProvider; name: string; note: string; needsKey: string | null }[] = [
   { id: "groq", name: "Groq", note: "gratis · recomendado", needsKey: "groq" },
   { id: "gemini", name: "Google Gemini", note: "gratis", needsKey: "gemini" },
+  { id: "ollama", name: "Ollama", note: "en tu ordenador · sin clave", needsKey: null },
   { id: "none", name: "Sin IA", note: "títulos sencillos, sin clave ni internet", needsKey: null },
   { id: "openai", name: "OpenAI", note: "de pago", needsKey: "openai" },
   { id: "anthropic", name: "Claude", note: "de pago · mejor calidad", needsKey: "anthropic" },

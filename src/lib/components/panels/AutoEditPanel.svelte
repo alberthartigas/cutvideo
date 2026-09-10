@@ -248,6 +248,13 @@
             {#each AI_PROVIDERS as p (p.id)}<option value={p.id}>{p.name} · {p.note}</option>{/each}
           </select>
         </label>
+        {#if o.aiProvider === "ollama"}
+          <p class="sub text-[10px] leading-snug">
+            Usa el modelo que tengas en tu ordenador con Ollama: no manda nada a internet ni necesita
+            clave. Ten Ollama abierto y un modelo descargado (por ejemplo
+            <code>ollama pull qwen2.5:7b-instruct</code>). Los subtítulos sí se transcriben fuera.
+          </p>
+        {/if}
         {#if o.aiProvider !== "none"}
           <label class="sub">
             <span>Estilo</span>
