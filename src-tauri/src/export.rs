@@ -168,8 +168,13 @@ enum Encoder {
     Qsv,
     /// Gráfica AMD.
     Amf,
-    /// Por software, en el procesador. Siempre funciona.
+    /// Por software, en el procesador. Es el que mejor imagen da, pero solo
+    /// existe en las builds GPL: en Windows no viene, porque x264 es GPL y no
+    /// puede ir dentro de una app con licencia MIT.
     X264,
+    /// Por software también, y de la build LGPL: en Windows es el único que
+    /// queda si ninguna gráfica sirve.
+    OpenH264,
 }
 
 impl Encoder {
@@ -180,6 +185,7 @@ impl Encoder {
             Encoder::Qsv => "h264_qsv",
             Encoder::Amf => "h264_amf",
             Encoder::X264 => "libx264",
+            Encoder::OpenH264 => "libopenh264",
         }
     }
 
@@ -188,17 +194,24 @@ impl Encoder {
     /// siguiente, así que no hace falta detectar el hardware por otro lado.
     fn candidates(forced: &str) -> Vec<Encoder> {
         if forced == "x264" {
-            return vec![Encoder::X264];
+            return vec![Encoder::X264, Encoder::OpenH264];
         }
         if cfg!(target_os = "macos") {
-            vec![Encoder::VideoToolbox, Encoder::X264]
+            vec![Encoder::VideoToolbox, Encoder::X264, Encoder::OpenH264]
         } else {
-            vec![Encoder::Nvenc, Encoder::Qsv, Encoder::Amf, Encoder::X264]
+            vec![
+                Encoder::Nvenc,
+                Encoder::Qsv,
+                Encoder::Amf,
+                Encoder::X264,
+                Encoder::OpenH264,
+            ]
         }
     }
 
     /// Argumentos de codificación. Los de hardware van por bitrate; x264 por
-    /// calidad constante, que es lo que mejor se le da.
+    /// calidad constante, que es lo que mejor se le da. openh264 no tiene modo
+    /// de calidad constante, así que también va por bitrate.
     fn args(self, bitrate: &str) -> Vec<String> {
         match self {
             Encoder::VideoToolbox => vec![
@@ -215,6 +228,10 @@ impl Encoder {
             ],
             Encoder::X264 => vec![
                 "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high",
+            ],
+            Encoder::OpenH264 => vec![
+                "-c:v", "libopenh264", "-b:v", bitrate, "-profile:v", "high", "-coder",
+                "cabac", "-rc_mode", "bitrate",
             ],
         }
         .into_iter()

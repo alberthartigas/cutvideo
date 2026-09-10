@@ -25,7 +25,9 @@ Marca lo que falle y con qué archivo pasó.
 - [ ] Reproducir con sonido; si Windows lo bloquea, sale un botón para activarlo.
 - [ ] Exportar un vídeo corto y abrirlo. Mirar qué codificador usó (lo dice al
       terminar): en Windows debería salir **NVENC**, **QSV** o **AMF**; si sale
-      `libx264` es que no encontró el de la tarjeta.
+      `libopenh264` es que no encontró el de la tarjeta y ha tirado del
+      procesador. (`libx264` no puede salir en Windows: el ffmpeg LGPL que
+      llevamos no lo trae, porque x264 es GPL.)
 
 **Timeline**
 - [ ] Los clips enseñan fotogramas y forma de onda.
@@ -55,7 +57,7 @@ Marca lo que falle y con qué archivo pasó.
 | Qué | Por qué | Dónde mirar |
 | --- | --- | --- |
 | No importa ni exporta | El sidecar `ffmpeg-x86_64-pc-windows-msvc.exe` no llegó al paquete | `src-tauri/binaries/`, `scripts/setup-ffmpeg.sh` |
-| Exporta lento | No detecta NVENC/QSV/AMF y cae a x264 | `Encoder::candidates` en `src-tauri/src/export.rs` |
+| Exporta lento | No detecta NVENC/QSV/AMF y cae a openh264 | `Encoder::candidates` en `src-tauri/src/export.rs` |
 | Las claves de API no se guardan | El llavero en Windows es el Administrador de credenciales | `src-tauri/src/secrets.rs` |
 | El recorte de personas no va | El WASM de MediaPipe no carga | consola del WebView (WebView2) |
 | El instalador no actualiza | `installMode: passive` de NSIS | `tauri.conf.json` → `plugins.updater.windows` |
