@@ -142,6 +142,14 @@ pub struct ExportPlan {
     pub fit: String,
     #[serde(default)]
     pub overlays: Vec<ExportOverlay>,
+    /// Sonoridad a la que dejar el audio (LUFS integrados, p. ej. -14 para
+    /// YouTube), o None para no tocarla.
+    #[serde(default)]
+    pub loudness_target: Option<f64>,
+    /// Ganancia en dB para llegar a `loudness_target`. La calcula el backend
+    /// midiendo la mezcla antes de exportar; el frontend no la manda.
+    #[serde(skip)]
+    pub loudness_gain: Option<f64>,
 }
 
 fn default_fit() -> String {
@@ -315,7 +323,7 @@ fn video_length(clips: &[ExportClip]) -> f64 {
     len
 }
 
-fn total_duration(plan: &ExportPlan) -> f64 {
+pub(crate) fn total_duration(plan: &ExportPlan) -> f64 {
     let video = video_length(&plan.video);
     plan.audio
         .iter()
@@ -404,22 +412,10 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         filters.push(format!(
             "[{i}:v]setpts=PTS-STARTPTS,{encaje},setsar=1,fps={fps}{fx}{chroma},{out_fmt}[v{i}]"
         ));
-        if c.has_audio {
-            filters.push(format!(
-                "[{i}:a]asetpts=PTS-STARTPTS,aresample=48000:async=1,\
-                 aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
-            ));
-        } else {
-            // Vídeo mudo: silencio de la misma duración.
-            filters.push(format!(
-                "anullsrc=r=48000:cl=stereo,atrim=0:{}[a{i}]",
-                sec(c.duration())
-            ));
-        }
     }
-    // Encadenamos los clips: corte seco = concat; con transición = xfade (vídeo) + acrossfade (audio).
+    // Encadenamos los clips: corte seco = concat; con transición = xfade
+    // (el audio, con acrossfade, lo monta `audio_graph`).
     let mut vcur = String::from("v0");
-    let mut acur = String::from("a0");
     let mut cur_len = plan.video[0].duration();
     for i in 1..n {
         let prev = &plan.video[i - 1];
@@ -434,20 +430,16 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
                     sec(d),
                     sec(offset)
                 ));
-                filters.push(format!("[{acur}][a{i}]acrossfade=d={}:c1=tri:c2=tri[ax{i}]", sec(d)));
                 cur_len += c.duration() - d;
             }
             _ => {
                 filters.push(format!("[{vcur}][v{i}]concat=n=2:v=1:a=0[vx{i}]"));
-                filters.push(format!("[{acur}][a{i}]concat=n=2:v=0:a=1[ax{i}]"));
                 cur_len += c.duration();
             }
         }
         vcur = format!("vx{i}");
-        acur = format!("ax{i}");
     }
     filters.push(format!("[{vcur}]null[vcat]"));
-    filters.push(format!("[{acur}]anull[acat]"));
     let video_len = cur_len;
 
     // Si la pista de audio dura más que el vídeo, rellenamos con negro.
@@ -560,40 +552,7 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     }
     filters.push(format!("[{last}]format=yuv420p[vout]"));
 
-    // Todo lo que suena aparte de la pista principal: la pista A1, el fondo
-    // y las capas que tengan audio. Antes las capas iban mudas y el usuario,
-    // con razón, no entendía por qué su clip no sonaba. (input, inicio)
-    let mut extras: Vec<(usize, f64)> = Vec::new();
-    for (j, c) in plan.audio.iter().enumerate() {
-        extras.push((n + j, c.start));
-    }
-    for (k, c) in plan.background.iter().enumerate() {
-        if c.has_audio {
-            extras.push((bg_first + k, c.start));
-        }
-    }
-    for (k, l) in plan.layers.iter().enumerate() {
-        if l.clip.has_audio {
-            extras.push((layer_first + k, l.clip.start));
-        }
-    }
-    if extras.is_empty() {
-        filters.push("[acat]anull[aout]".into());
-    } else {
-        let mut mix = String::from("[acat]");
-        for (j, (k, start)) in extras.iter().enumerate() {
-            let ms = (start * 1000.0).round() as u64;
-            filters.push(format!(
-                "[{k}:a]asetpts=PTS-STARTPTS,aresample=48000,\
-                 aformat=sample_fmts=fltp:channel_layouts=stereo,adelay={ms}:all=1[m{j}]"
-            ));
-            mix.push_str(&format!("[m{j}]"));
-        }
-        filters.push(format!(
-            "{mix}amix=inputs={}:duration=longest:normalize=0[aout]",
-            extras.len() + 1
-        ));
-    }
+    filters.extend(audio_graph(plan));
 
     args.extend([
         "-filter_complex".into(),
@@ -614,6 +573,90 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     );
     args.push(plan.output.clone());
     args
+}
+
+/// Grafo del audio final, que acaba en `[aout]`. Lo usan la exportación y la
+/// medida de sonoridad (loudness.rs): así se mide exactamente lo que se exporta.
+/// Cuenta con los inputs en el orden de `build_args`: V1, A1, fondo y capas.
+pub(crate) fn audio_graph(plan: &ExportPlan) -> Vec<String> {
+    let n = plan.video.len();
+    let mut filters: Vec<String> = Vec::new();
+    for (i, c) in plan.video.iter().enumerate() {
+        if c.has_audio {
+            filters.push(format!(
+                "[{i}:a]asetpts=PTS-STARTPTS,aresample=48000:async=1,\
+                 aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+            ));
+        } else {
+            // Vídeo mudo: silencio de la misma duración.
+            filters.push(format!(
+                "anullsrc=r=48000:cl=stereo,atrim=0:{}[a{i}]",
+                sec(c.duration())
+            ));
+        }
+    }
+    // Mismo encadenado que el vídeo: concat o, con transición, acrossfade.
+    let mut acur = String::from("a0");
+    for i in 1..n {
+        let prev = &plan.video[i - 1];
+        let c = &plan.video[i];
+        match &prev.transition {
+            Some(t) if t.duration > 0.0 && XFADE_NAMES.contains(&t.xfade.as_str()) => {
+                let d = t.duration.min(prev.duration() / 2.0).min(c.duration() / 2.0);
+                filters.push(format!("[{acur}][a{i}]acrossfade=d={}:c1=tri:c2=tri[ax{i}]", sec(d)));
+            }
+            _ => filters.push(format!("[{acur}][a{i}]concat=n=2:v=0:a=1[ax{i}]")),
+        }
+        acur = format!("ax{i}");
+    }
+    filters.push(format!("[{acur}]anull[acat]"));
+
+    // Todo lo que suena aparte de la pista principal: la pista A1, el fondo
+    // y las capas que tengan audio. Antes las capas iban mudas y el usuario,
+    // con razón, no entendía por qué su clip no sonaba. (input, inicio)
+    let bg_first = n + plan.audio.len();
+    let layer_first = bg_first + plan.background.len();
+    let mut extras: Vec<(usize, f64)> = Vec::new();
+    for (j, c) in plan.audio.iter().enumerate() {
+        extras.push((n + j, c.start));
+    }
+    for (k, c) in plan.background.iter().enumerate() {
+        if c.has_audio {
+            extras.push((bg_first + k, c.start));
+        }
+    }
+    for (k, l) in plan.layers.iter().enumerate() {
+        if l.clip.has_audio {
+            extras.push((layer_first + k, l.clip.start));
+        }
+    }
+    let mix_out = if plan.loudness_target.is_some() { "amix" } else { "aout" };
+    if extras.is_empty() {
+        filters.push(format!("[acat]anull[{mix_out}]"));
+    } else {
+        let mut mix = String::from("[acat]");
+        for (j, (k, start)) in extras.iter().enumerate() {
+            let ms = (start * 1000.0).round() as u64;
+            filters.push(format!(
+                "[{k}:a]asetpts=PTS-STARTPTS,aresample=48000,\
+                 aformat=sample_fmts=fltp:channel_layouts=stereo,adelay={ms}:all=1[m{j}]"
+            ));
+            mix.push_str(&format!("[m{j}]"));
+        }
+        filters.push(format!(
+            "{mix}amix=inputs={}:duration=longest:normalize=0[{mix_out}]",
+            extras.len() + 1
+        ));
+    }
+    // Normalizar: una ganancia fija calculada midiendo antes la mezcla
+    // (loudness.rs), y un limitador por si los picos pasan de -1 dBTP. Fija y
+    // no `loudnorm` en una pasada, que sube y baja el volumen sobre la marcha.
+    if let Some(gain) = plan.loudness_gain {
+        filters.push(format!("[amix]volume={gain:.2}dB,alimiter=limit=0.891:level=false[aout]"));
+    } else if plan.loudness_target.is_some() {
+        filters.push("[amix]anull[aout]".into());
+    }
+    filters
 }
 
 /// Ejecuta ffmpeg y va emitiendo `export:progress` al frontend.
@@ -735,6 +778,12 @@ pub async fn export_video(
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let lut_dir = std::env::temp_dir().join(format!("cutvideo-color-{}-{nanos}", std::process::id()));
     bake_luts(&mut plan, &lut_dir)?;
+    // Normalizar al exportar: se mide la mezcla primero (va mucho más rápido
+    // que el tiempo real porque solo decodifica audio) y se aplica la ganancia.
+    if let Some(target) = plan.loudness_target {
+        let report = crate::loudness::measure(&app, &plan).await?;
+        plan.loudness_gain = crate::loudness::gain_for(report.integrated, target.clamp(-30.0, -5.0));
+    }
     let result = export_baked(&app, state, plan).await;
     let _ = std::fs::remove_dir_all(&lut_dir);
     result
@@ -986,6 +1035,8 @@ mod tests {
         for (fit, esquina_negra) in [("cover", false), ("contain", true)] {
             let out = format!("{dir}/aspect-{fit}.mp4");
             let plan = ExportPlan {
+                loudness_target: None,
+                loudness_gain: None,
                 output: out.clone(),
                 // 9:16 a partir de un 640x360: el lado corto manda.
                 width: 360,
@@ -1066,6 +1117,8 @@ mod tests {
 
         let out = p("cap-out.mp4");
         let plan = ExportPlan {
+            loudness_target: None,
+            loudness_gain: None,
             output: out.clone(),
             width: 320,
             height: 240,
@@ -1175,6 +1228,8 @@ mod tests {
             .status().unwrap().success());
         let out = p("aud-out.mp4");
         let plan = ExportPlan {
+            loudness_target: None,
+            loudness_gain: None,
             output: out.clone(),
             width: 160, height: 120, fps: 25.0,
             video: vec![clip(&base, 0.0, 2.0, 0.0, false)],
@@ -1223,6 +1278,8 @@ mod tests {
 
         let out = p("chroma-out.mp4");
         let plan = ExportPlan {
+            loudness_target: None,
+            loudness_gain: None,
             output: out.clone(),
             width: 320,
             height: 240,
@@ -1287,6 +1344,8 @@ mod tests {
         assert!(gen.success(), "no se pudieron generar los PNG de prueba");
 
         let plan = ExportPlan {
+            loudness_target: None,
+            loudness_gain: None,
             output: output.clone(),
             width: 1280,
             height: 720,

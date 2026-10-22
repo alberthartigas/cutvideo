@@ -66,6 +66,8 @@ export interface ExportPlan {
   fit: "cover" | "contain";
   overlays: ExportOverlay[];
   layers: ExportLayer[];
+  /** LUFS integrados a los que dejar el audio, o null para no tocarlo. */
+  loudnessTarget?: number | null;
 }
 
 export interface ExportProgress {

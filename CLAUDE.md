@@ -24,7 +24,7 @@ npm install
 npm run dev          # modo navegador: UI con la API de Tauri simulada (dev-mock.ts)
 npm run tauri dev    # app de verdad
 npm run check        # svelte-check (debe salir 0 errores)
-cd src-tauri && cargo test           # 44 tests
+cd src-tauri && cargo test           # 48 tests
 ./scripts/release.sh 0.1.12          # publica versión (ver abajo)
 ```
 
@@ -91,6 +91,14 @@ FilmCraft. El panel copia el `<video>` de V1 (`preview/current-frame.ts`) a
 ≤480×270 y Rust le aplica `Grade::apply` antes de medir, así que miden la
 corrección de color pero **no** los efectos rápidos (son CSS). En modo
 navegador los pinta un simulador sencillo de `dev-mock.ts`.
+
+**Sonoridad** (`loudness.rs`, `LoudnessPanel.svelte`, `tauri/loudness.svelte.ts`):
+medidor EBU R128 de FilmCraft (`audio-dsp`). Se mide la mezcla entera de una
+vez con el MISMO grafo de audio que la exportación (`export::audio_graph`,
+compartido a propósito) y se guarda una curva cada 100 ms; el panel la lee según
+el playhead, así que los medidores se mueven sin tocar el audio que suena. Al
+exportar, «Volumen» mide antes y aplica una ganancia fija (tope ±20 dB) más un
+limitador a −1 dB; nada de `loudnorm` en una pasada, que bombea.
 
 **Timeline con imagen**: `ClipArt.svelte` pinta en un canvas los fotogramas de
 la tira (`make_filmstrip`) y la forma de onda (`make_waveform`, picos a 50/s).

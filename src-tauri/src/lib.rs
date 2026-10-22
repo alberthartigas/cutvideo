@@ -4,6 +4,7 @@ mod export;
 mod grade;
 mod highlights;
 mod learning;
+mod loudness;
 mod media;
 mod music_rights;
 mod neterr;
@@ -98,6 +99,7 @@ pub fn run() {
             patches::delete_patch,
             grade::grade_lut,
             scopes::video_scope,
+            loudness::measure_loudness,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

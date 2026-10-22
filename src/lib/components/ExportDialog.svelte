@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LOUDNESS_TARGETS } from "$lib/tauri/loudness.svelte";
   import { CircleCheck, Download, FolderOpen, LoaderCircle, TriangleAlert, X } from "@lucide/svelte";
   import { ui } from "$lib/ui.svelte";
   import { project } from "$lib/project.svelte";
@@ -43,6 +44,23 @@
   let phase = $state<Phase>({ kind: "idle" });
   let shortSide = $state<number | null>(null);
   let encoder = $state<ExportEncoder>("auto");
+  /** Normalizar el volumen; se recuerda la última elección. */
+  let loudnessTarget = $state<number | null>(savedTarget());
+  function savedTarget(): number | null {
+    try {
+      const v = Number(localStorage.getItem("cutvideo.loudnessTarget"));
+      return LOUDNESS_TARGETS.some((t) => t.lufs === v) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  $effect(() => {
+    try {
+      localStorage.setItem("cutvideo.loudnessTarget", String(loudnessTarget ?? ""));
+    } catch {
+      // Sin almacenamiento: solo dura esta sesión.
+    }
+  });
   let cancelled = false;
 
   let orig = $derived(originalSize());
@@ -79,7 +97,7 @@
       unlisten = await onExportProgress((p) => {
         if (phase.kind === "running") phase = { ...phase, stage: "ffmpeg", percent: p.percent, speed: p.speed };
       });
-      const result = await exportVideo(buildExportPlan(output, target, encoder, assets));
+      const result = await exportVideo({ ...buildExportPlan(output, target, encoder, assets), loudnessTarget });
       phase = { kind: "done", result };
       // Lo que se exporta es lo que le gustó: de ahí aprende la autoedición.
       aprendido = await aprenderDeLaEdicion();
@@ -145,6 +163,15 @@
             <select bind:value={encoder} class="field w-48">
               <option value="auto">Automático (hardware)</option>
               <option value="x264">x264 (software, más lento)</option>
+            </select>
+          </label>
+          <label class="flex items-center justify-between gap-3" title="Mide la mezcla y la sube o baja a la sonoridad que pide cada plataforma">
+            <span>Volumen</span>
+            <select bind:value={loudnessTarget} class="field w-56">
+              <option value={null}>Dejarlo como está</option>
+              {#each LOUDNESS_TARGETS as t (t.lufs)}
+                <option value={t.lufs}>{t.lufs} LUFS · {t.name}</option>
+              {/each}
             </select>
           </label>
           <p class="text-xs text-muted">

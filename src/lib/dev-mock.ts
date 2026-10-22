@@ -348,6 +348,15 @@ export function installDevMock() {
           reasoning: `Plan simulado en modo navegador (${req.provider ?? "groq"}).`,
         };
       }
+      case "measure_loudness": {
+        // Una curva inventada que sube y baja, a -18 LUFS de media.
+        await sleep(600);
+        const plan = args.plan as { video: { in: number; out: number }[] };
+        const dur = plan.video.reduce((n, c) => n + (c.out - c.in), 0);
+        const n = Math.round(dur / 0.1);
+        const curve = (k: number, amp: number) => Array.from({ length: n }, (_, i) => -18 + amp * Math.sin(i / k));
+        return { integrated: -18.2, range: 6.4, truePeak: -2.3, step: 0.1, momentary: curve(3, 6), shortTerm: curve(12, 3) };
+      }
       case "export_video": {
         await sleep(1200);
         const plan = args.plan as { output: string };

@@ -9,6 +9,7 @@
   import StartScreen from "$lib/components/StartScreen.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
   import ScopesPanel from "$lib/components/ScopesPanel.svelte";
+  import LoudnessPanel from "$lib/components/LoudnessPanel.svelte";
   import TextInspector from "$lib/components/TextInspector.svelte";
   import TransitionPanel from "$lib/components/TransitionPanel.svelte";
   import LayerInspector from "$lib/components/LayerInspector.svelte";
@@ -320,6 +321,7 @@
         <div class="panel-header"><span>{inspectorClip?.kind === "text" ? "Texto" : "Inspector"}</span></div>
         {#if ui.scopesOpen}
           <ScopesPanel />
+          <LoudnessPanel />
         {/if}
         {#if inspectorClip?.kind === "text"}
           <TextInspector clip={inspectorClip} />
