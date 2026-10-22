@@ -80,10 +80,10 @@ jobs:
       - name: Instalar dependencias
         shell: pwsh
         run: |
-          $lock = Get-Content package-lock.json -Raw | ConvertFrom-Json
-          $pins = $lock.packages.PSObject.Properties |
-            Where-Object { $_.Name -like 'node_modules/@tauri-apps/*' -and $_.Name -notlike 'node_modules/@tauri-apps/cli*' } |
-            ForEach-Object { "$($_.Name -replace '^node_modules/', '')@$($_.Value.version)" }
+          # Con Node y no con ConvertFrom-Json, que no acepta la clave vacía
+          # ("") que el lock usa para el paquete raíz.
+          $pins = node scripts/tauri-js-pins.mjs
+          if ($LASTEXITCODE -ne 0 -or -not $pins) { throw "No se pudieron leer las versiones del lock" }
           Remove-Item package-lock.json
           npm install --no-audit --no-fund
           Write-Host "Fijando: $pins"
