@@ -10,6 +10,7 @@ mod neterr;
 mod patches;
 mod projects;
 mod proxies;
+mod scopes;
 mod secrets;
 mod sfx;
 mod transcribe;
@@ -96,6 +97,7 @@ pub fn run() {
             patches::import_patch,
             patches::delete_patch,
             grade::grade_lut,
+            scopes::video_scope,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

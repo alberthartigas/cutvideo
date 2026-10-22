@@ -24,7 +24,7 @@ npm install
 npm run dev          # modo navegador: UI con la API de Tauri simulada (dev-mock.ts)
 npm run tauri dev    # app de verdad
 npm run check        # svelte-check (debe salir 0 errores)
-cd src-tauri && cargo test           # 40 tests
+cd src-tauri && cargo test           # 44 tests
 ./scripts/release.sh 0.1.12          # publica versión (ver abajo)
 ```
 
@@ -84,6 +84,13 @@ en el preview (tira 2D en el shader de `layer-gl.ts`, interpolación trilineal a
 mano porque WebGL 1 no tiene texturas 3D) y en el export (`lut3d`, también
 trilineal). Así coinciden; los presets viejos (CSS vs `eq`) solo se parecen.
 En modo navegador el LUT lo hace una copia en JS en `dev-mock.ts`.
+
+**Scopes** (`scopes.rs`, `ScopesPanel.svelte`, botón junto al tiempo del
+preview): forma de onda, parade RGB y vectorscopio con el crate `scopes` de
+FilmCraft. El panel copia el `<video>` de V1 (`preview/current-frame.ts`) a
+≤480×270 y Rust le aplica `Grade::apply` antes de medir, así que miden la
+corrección de color pero **no** los efectos rápidos (son CSS). En modo
+navegador los pinta un simulador sencillo de `dev-mock.ts`.
 
 **Timeline con imagen**: `ClipArt.svelte` pinta en un canvas los fotogramas de
 la tira (`make_filmstrip`) y la forma de onda (`make_waveform`, picos a 50/s).

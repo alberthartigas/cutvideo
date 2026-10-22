@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Pause, Play, SkipBack } from "@lucide/svelte";
+  import { Activity, Pause, Play, SkipBack } from "@lucide/svelte";
+  import { currentFrame } from "$lib/preview/current-frame";
+  import { toggleScopes, ui } from "$lib/ui.svelte";
   import { project, type Clip, type Track } from "$lib/project.svelte";
   import { proxies } from "$lib/proxies.svelte";
   import { clock } from "$lib/playback-clock";
@@ -112,6 +114,8 @@
     // una hay dos vídeos a la vez y manda el temporizador.
     master = active && elA && !tr && elA instanceof HTMLVideoElement ? { el: elA, clip: active } : null;
     if (active && elA) syncClip(elA, active, t, playing);
+    currentFrame.el = active && elA ? elA : null;
+    currentFrame.clip = active;
     if (incoming && elB) {
       if (tr) syncClip(elB, incoming, t, playing);
       else preload(elB, incoming);
@@ -349,6 +353,9 @@
     <span class="ml-2 font-mono text-xs tabular-nums">{formatDuration(project.playhead)}</span>
     <span class="font-mono text-xs tabular-nums text-muted">/ {formatDuration(project.duration)}</span>
     <span class="ml-auto text-[11px] text-muted">{aspectLabel} · {frame.width}×{frame.height}</span>
+    <button class="tool" class:text-accent={ui.scopesOpen} title="Scopes: forma de onda y vectorscopio" onclick={toggleScopes}>
+      <Activity size={14} />
+    </button>
   </div>
 </div>
 

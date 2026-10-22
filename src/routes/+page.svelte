@@ -8,6 +8,7 @@
   import Sidebar from "$lib/components/Sidebar.svelte";
   import StartScreen from "$lib/components/StartScreen.svelte";
   import MediaInfoPanel from "$lib/components/MediaInfoPanel.svelte";
+  import ScopesPanel from "$lib/components/ScopesPanel.svelte";
   import TextInspector from "$lib/components/TextInspector.svelte";
   import TransitionPanel from "$lib/components/TransitionPanel.svelte";
   import LayerInspector from "$lib/components/LayerInspector.svelte";
@@ -317,6 +318,9 @@
       <!-- Inspector -->
       <aside class="panel mr-2 shrink-0" style="width:{layout.inspectorWidth}px">
         <div class="panel-header"><span>{inspectorClip?.kind === "text" ? "Texto" : "Inspector"}</span></div>
+        {#if ui.scopesOpen}
+          <ScopesPanel />
+        {/if}
         {#if inspectorClip?.kind === "text"}
           <TextInspector clip={inspectorClip} />
         {:else}

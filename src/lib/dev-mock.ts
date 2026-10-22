@@ -357,6 +357,20 @@ export function installDevMock() {
         throw `Modo navegador: comando no simulado: ${cmd}`;
     }
   });
+
+  // mockIPC no pasa las cabeceras al simulador, y los scopes van en ellas:
+  // se intercepta antes.
+  const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (...a: unknown[]) => Promise<unknown> } })
+    .__TAURI_INTERNALS__;
+  const inner = internals.invoke;
+  internals.invoke = (cmd: unknown, args: unknown, opts?: unknown) => {
+    if (cmd !== "video_scope") return inner(cmd, args, opts);
+    const raw = (opts as { headers?: HeadersInit } | undefined)?.headers;
+    const h = new Headers(raw);
+    return Promise.resolve(
+      mockScope(args as Uint8Array, h.get("x-kind") ?? "waveform", Number(h.get("x-width")), Number(h.get("x-height")), h.get("x-grade")),
+    );
+  };
   console.info("[CutVideo] API de Tauri simulada (modo navegador)");
 }
 
@@ -404,4 +418,50 @@ function mockGradeLut(g: any): Uint8Array {
     for (let gg = 0; gg < N; gg++)
       for (let r = 0; r < N; r++) for (const q of apply([r / (N - 1), gg / (N - 1), b / (N - 1)])) out[i++] = Math.round(q * 255);
   return out;
+}
+
+/**
+ * Scopes simulados para el modo navegador: misma salida que scopes.rs
+ * ([ancho, alto, RGBA]) pero con un trazo sencillo, sin la escala de FilmCraft.
+ */
+function mockScope(px: Uint8Array, kind: string, w: number, h: number, gradeJson: string | null): ArrayBuffer {
+  // Con corrección de color, cada píxel pasa por el LUT simulado (vecino más próximo).
+  const lut = gradeJson ? mockGradeLut(JSON.parse(gradeJson)) : null;
+  const N = 33;
+  const rgb = (i: number) => {
+    const c = [px[i], px[i + 1], px[i + 2]];
+    if (!lut) return c;
+    const [r, g, b] = c.map((v) => Math.round((v / 255) * (N - 1)));
+    const j = (r + g * N + b * N * N) * 3;
+    return [lut[j], lut[j + 1], lut[j + 2]];
+  };
+  const put = (out: Uint8ClampedArray, ow: number, x: number, y: number, col: number[]) => {
+    const k = (y * ow + x) * 4;
+    for (let c = 0; c < 3; c++) out[k + c] = Math.min(255, out[k + c] + col[c] * 0.35);
+    out[k + 3] = Math.min(255, out[k + 3] + 90);
+  };
+  let ow = w, oh = 256;
+  if (kind === "parade") ow = w * 3;
+  if (kind === "vectorscope") ow = oh = 255;
+  const out = new Uint8ClampedArray(ow * oh * 4);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const [r, g, b] = rgb((y * w + x) * 4);
+      if (kind === "waveform") put(out, ow, x, 255 - Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b), [140, 255, 150]);
+      else if (kind === "parade") {
+        put(out, ow, x, 255 - r, [255, 80, 80]);
+        put(out, ow, x + w, 255 - g, [80, 255, 90]);
+        put(out, ow, x + 2 * w, 255 - b, [90, 130, 255]);
+      } else {
+        const cb = (-0.1146 * r - 0.3854 * g + 0.5 * b) / 255;
+        const cr = (0.5 * r - 0.4542 * g - 0.0458 * b) / 255;
+        const vx = Math.round((cb / 0.6 / 2 + 0.5) * 254), vy = Math.round((0.5 - cr / 0.6 / 2) * 254);
+        if (vx >= 0 && vx < 255 && vy >= 0 && vy < 255) put(out, ow, vx, vy, [r, g, b].map((v) => 140 + v / 2.2));
+      }
+    }
+  const buf = new Uint8Array(8 + out.length);
+  new DataView(buf.buffer).setUint32(0, ow, true);
+  new DataView(buf.buffer).setUint32(4, oh, true);
+  buf.set(out, 8);
+  return buf.buffer;
 }
