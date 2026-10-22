@@ -71,11 +71,23 @@ jobs:
       # binarios de rolldown y tailwind que no arrancan en Windows. Borrando el
       # lock, npm resuelve los correctos. Se pierde el pinning exacto de
       # versiones a cambio de que la compilación funcione.
+      #
+      # Salvo las librerías JS de Tauri: `tauri build` se niega a compilar si
+      # su versión menor no es la de los crates de Rust (Cargo.lock), y sin el
+      # lock npm cogía la última (pasó en la 0.1.13: api 2.12 contra tauri
+      # 2.11). Esas se reinstalan exactas a las del lock; no tienen binarios
+      # nativos, así que no les afecta el problema de arriba.
       - name: Instalar dependencias
         shell: pwsh
         run: |
-          Remove-Item package-lock.json -ErrorAction SilentlyContinue
+          $lock = Get-Content package-lock.json -Raw | ConvertFrom-Json
+          $pins = $lock.packages.PSObject.Properties |
+            Where-Object { $_.Name -like 'node_modules/@tauri-apps/*' -and $_.Name -notlike 'node_modules/@tauri-apps/cli*' } |
+            ForEach-Object { "$($_.Name -replace '^node_modules/', '')@$($_.Value.version)" }
+          Remove-Item package-lock.json
           npm install --no-audit --no-fund
+          Write-Host "Fijando: $pins"
+          npm install --no-audit --no-fund --no-save @pins
 
       - name: Compilar y subir a la release
         uses: tauri-apps/tauri-action@v0
