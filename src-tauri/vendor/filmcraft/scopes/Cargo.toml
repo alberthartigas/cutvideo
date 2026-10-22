@@ -1,0 +1,12 @@
+[package]
+name = "filmcraft-scopes"
+description = "Video scopes maths: waveform, parade, histogram and vectorscopes from a frame's R'G'B' values"
+version = "0.10.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+[dependencies]
+filmcraft-color = { path = "../color" }
+serde = { version = "1", features = ["derive"] }
+

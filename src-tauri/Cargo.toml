@@ -29,6 +29,10 @@ rustfft = "6.4.1"
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
 minisign-verify = "0.2.5"
+# Motores de color, scopes y audio copiados de FilmCraft (MIT OR Apache-2.0), ver vendor/filmcraft
+filmcraft-color = { path = "vendor/filmcraft/color" }
+filmcraft-scopes = { path = "vendor/filmcraft/scopes" }
+filmcraft-audio-dsp = { path = "vendor/filmcraft/audio-dsp" }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

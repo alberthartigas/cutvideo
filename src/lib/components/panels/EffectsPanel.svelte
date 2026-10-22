@@ -6,6 +6,7 @@
   import { project } from "$lib/project.svelte";
   import { DEFAULT_ADJUSTMENTS, EFFECTS, type Adjustments } from "$lib/effects/presets";
   import { CHROMA_PRESETS, DEFAULT_CHROMA } from "$lib/effects/chroma";
+  import { DEFAULT_GRADE, LOOKS, type Grade } from "$lib/effects/grade.svelte";
 
   let hovered = $state<string | null>(null);
 
@@ -17,6 +18,27 @@
   let current = $derived(target?.effects?.preset ?? null);
   let adjust = $derived<Adjustments>(target?.effects?.adjust ?? DEFAULT_ADJUSTMENTS);
   let chroma = $derived(target?.effects?.chroma ?? DEFAULT_CHROMA);
+  let grade = $derived<Grade>({ ...DEFAULT_GRADE, ...target?.effects?.grade });
+  /** Look elegido: el que coincide con los ajustes actuales, si alguno. */
+  let look = $derived(
+    LOOKS.find((l) => JSON.stringify({ ...DEFAULT_GRADE, ...l.grade }) === JSON.stringify(grade))?.id ?? null,
+  );
+
+  type NumKey = Exclude<keyof Grade, "shadowTint" | "highlightTint">;
+  // Mismas unidades y rangos que los deslizadores de Lumetri en FilmCraft.
+  const COLOR: { key: NumKey; label: string; min: number; max: number; step: number }[] = [
+    { key: "temperature", label: "Temperatura", min: -100, max: 100, step: 1 },
+    { key: "tint", label: "Tinte", min: -100, max: 100, step: 1 },
+    { key: "exposure", label: "Exposición", min: -3, max: 3, step: 0.05 },
+    { key: "contrast", label: "Contraste", min: -100, max: 100, step: 1 },
+    { key: "highlights", label: "Luces", min: -100, max: 100, step: 1 },
+    { key: "shadows", label: "Sombras", min: -100, max: 100, step: 1 },
+    { key: "whites", label: "Blancos", min: -100, max: 100, step: 1 },
+    { key: "blacks", label: "Negros", min: -100, max: 100, step: 1 },
+    { key: "saturation", label: "Saturación", min: 0, max: 200, step: 1 },
+    { key: "vibrance", label: "Intensidad", min: -100, max: 100, step: 1 },
+    { key: "faded", label: "Película", min: 0, max: 100, step: 1 },
+  ];
   // Sin nada en la pista de fondo, quitar el verde solo deja negro.
   // En una capa superpuesta lo que se ve por detrás es el vídeo principal;
   // en la pista principal hace falta poner algo en F1.
@@ -124,6 +146,42 @@
   </div>
 
   <div class="mt-4 flex items-center justify-between px-1">
+    <h3 class="text-[11px] font-semibold tracking-wider text-muted uppercase">Color</h3>
+    <button class="tool h-6" title="Quitar la corrección de color" disabled={!target}
+      onclick={() => { if (target) { project.commit(); project.setGrade(target.id, {}, true); } }}>
+      <RefreshCw size={12} />
+    </button>
+  </div>
+  <div class="mb-2 flex flex-wrap gap-1 px-1">
+    {#each LOOKS as l (l.id)}
+      <button class="chip" class:active={look === l.id} disabled={!target}
+        onclick={() => { if (target) { project.commit(); project.setGrade(target.id, l.grade, true); } }}>
+        {l.name}
+      </button>
+    {/each}
+  </div>
+  <div class="flex flex-col gap-1.5 px-1 text-xs">
+    {#each COLOR as s (s.key)}
+      <label class="flex items-center gap-2" title="Doble clic para dejarlo en su valor normal">
+        <span class="w-20 shrink-0 text-muted">{s.label}</span>
+        <input
+          class="min-w-0 flex-1 accent-accent"
+          type="range"
+          min={s.min}
+          max={s.max}
+          step={s.step}
+          value={grade[s.key]}
+          disabled={!target}
+          onpointerdown={() => project.commit()}
+          ondblclick={() => target && project.setGrade(target.id, { [s.key]: DEFAULT_GRADE[s.key] })}
+          oninput={(e) => target && project.setGrade(target.id, { [s.key]: Number(e.currentTarget.value) })}
+        />
+        <span class="w-8 shrink-0 text-right tabular-nums text-muted">{grade[s.key]}</span>
+      </label>
+    {/each}
+  </div>
+
+  <div class="mt-4 flex items-center justify-between px-1">
     <h3 class="text-[11px] font-semibold tracking-wider text-muted uppercase">Ajustes</h3>
     <button class="tool h-6" title="Restablecer" disabled={!target} onclick={() => target && project.setAdjust(target.id, DEFAULT_ADJUSTMENTS)}>
       <RefreshCw size={12} />
@@ -175,6 +233,21 @@
     color: var(--muted);
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  .chip {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .chip:hover:not(:disabled) {
+    border-color: var(--muted);
+  }
+  .chip.active {
+    border-color: var(--accent);
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
   .swatch {
     height: 20px;

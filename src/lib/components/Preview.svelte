@@ -10,6 +10,7 @@
   import { effectsCss, effectsVignette } from "$lib/effects/presets";
   import { patchAt } from "$lib/patches/types";
   import { LayerRenderer } from "$lib/preview/layer-gl";
+  import { lutFor } from "$lib/effects/grade.svelte";
   import VideoLayer from "./VideoLayer.svelte";
 
   // Capas, de abajo arriba: fondo (F1) → vídeo (V1, con croma si lo tiene) →
@@ -116,9 +117,12 @@
       else preload(elB, incoming);
     }
 
-    // Croma: el vídeo se pinta en el canvas WebGL y el <video> se esconde.
-    const keyed = active?.effects?.chroma?.enabled === true && !tr && chromaOk;
-    if (keyed && elA && chromaCanvas) chroma?.draw(elA, { chroma: active!.effects!.chroma });
+    // Croma o corrección de color: el vídeo se pinta en el canvas WebGL y el
+    // <video> se esconde. En una transición se ve sin color hasta que acaba:
+    // pintar dos vídeos con LUT a la vez pediría otro canvas.
+    const lut = active && !tr ? lutFor(active.effects?.grade, active.id) : null;
+    const keyed = (active?.effects?.chroma?.enabled === true || lut !== null) && !tr && chromaOk;
+    if (keyed && elA && chromaCanvas) chroma?.draw(elA, { chroma: active!.effects?.chroma, lut });
     if (chromaCanvas) {
       chromaCanvas.style.visibility = keyed ? "visible" : "hidden";
       chromaCanvas.style.filter = keyed && active ? (effectsCss(active.effects, viewH) || "none") : "none";

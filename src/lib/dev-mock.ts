@@ -90,6 +90,8 @@ export function installDevMock() {
     switch (cmd) {
       case "ffmpeg_version":
         return "simulado (modo navegador)";
+      case "grade_lut":
+        return mockGradeLut(args.grade as Record<string, number & number[]>).buffer;
       case "startup_files":
         // En el navegador arrancamos sin archivos, como al abrir la app normalmente;
         // los medios de prueba se importan con el botón Importar.
@@ -356,4 +358,50 @@ export function installDevMock() {
     }
   });
   console.info("[CutVideo] API de Tauri simulada (modo navegador)");
+}
+
+/**
+ * Copia en JS de `Grade::apply` (src-tauri/src/grade.rs) para el modo
+ * navegador. Solo simula: la app de verdad usa la de Rust.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockGradeLut(g: any): Uint8Array {
+  const N = 33;
+  const toLin = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const toSrgb = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
+  const luma = (v: number[]) => 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  const temp = g.temperature / 100, tint = g.tint / 100, exp = 2 ** g.exposure, con = g.contrast / 100;
+  const [hl, sh, wh, bl] = [g.highlights, g.shadows, g.whites, g.blacks].map((v: number) => v / 100);
+  const sat = g.saturation / 100, vib = g.vibrance / 100, faded = g.faded / 100;
+  const gains = [1 + 0.35 * temp, 1 - 0.3 * tint, 1 - 0.35 * temp];
+  const apply = (c: number[]) => {
+    let v = c.map((q, k) => toSrgb(Math.max(0, toLin(q) * gains[k] * exp)));
+    const b0 = -bl * 0.15, w0 = 1 - wh * 0.15;
+    v = v.map((q) => (q - b0) / Math.max(w0 - b0, 1e-3));
+    const l = luma(v);
+    const nl = Math.max(0, l + sh * 0.35 * clamp(1 - l) ** 3 + hl * 0.35 * clamp(l) ** 3);
+    if (l > 1e-5) v = v.map((q) => (q * nl) / l);
+    if (Math.abs(con) > 1e-4) {
+      const k = 1 + con;
+      v = v.map((q) => {
+        q = clamp(q);
+        const s = q * q * (3 - 2 * q);
+        return k >= 1 ? q + (s - q) * (k - 1) : 0.5 + (q - 0.5) * k;
+      });
+    }
+    if (faded > 0) v = v.map((q) => q * (1 - 0.25 * faded) + 0.12 * faded);
+    const l2 = clamp(luma(v));
+    v = v.map((q, k) => q + (g.shadowTint[k] - 0.5) * 0.3 * (1 - l2) + (g.highlightTint[k] - 0.5) * 0.3 * l2);
+    const l3 = luma(v);
+    const cur = Math.max(...v) - Math.min(...v);
+    const s = sat * (1 + vib * (1 - clamp(cur)));
+    return v.map((q) => clamp(l3 + (q - l3) * s));
+  };
+  const out = new Uint8Array(N * N * N * 3);
+  let i = 0;
+  for (let b = 0; b < N; b++)
+    for (let gg = 0; gg < N; gg++)
+      for (let r = 0; r < N; r++) for (const q of apply([r / (N - 1), gg / (N - 1), b / (N - 1)])) out[i++] = Math.round(q * 255);
+  return out;
 }

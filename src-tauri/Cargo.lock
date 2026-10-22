@@ -806,6 +806,9 @@ dependencies = [
 name = "cutvideo"
 version = "0.1.12"
 dependencies = [
+ "filmcraft-audio-dsp",
+ "filmcraft-color",
+ "filmcraft-scopes",
  "keyring",
  "minisign-verify",
  "reqwest",
@@ -1235,6 +1238,25 @@ checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
 dependencies = [
  "cfg-if",
  "libc",
+]
+
+[[package]]
+name = "filmcraft-audio-dsp"
+version = "0.10.0"
+
+[[package]]
+name = "filmcraft-color"
+version = "0.10.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "filmcraft-scopes"
+version = "0.10.0"
+dependencies = [
+ "filmcraft-color",
+ "serde",
 ]
 
 [[package]]

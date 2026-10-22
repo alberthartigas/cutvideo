@@ -4,6 +4,7 @@
   import { effectsCss, effectsVignette } from "$lib/effects/presets";
   import { DEFAULT_LAYOUT } from "$lib/layers";
   import { LayerRenderer } from "$lib/preview/layer-gl";
+  import { lutFor } from "$lib/effects/grade.svelte";
   import { segmenter } from "$lib/segment/segmenter.svelte";
   import { clock } from "$lib/playback-clock";
 
@@ -39,7 +40,8 @@
     return time > 0 && !playing ? project.clipAt(track, time - 1e-3) : null;
   });
   let layout = $derived({ ...DEFAULT_LAYOUT, ...clip?.layout });
-  let needsCanvas = $derived(!!clip && (clip.effects?.chroma?.enabled === true || layout.cutout));
+  let lut = $derived(clip ? lutFor(clip.effects?.grade, clip.id) : null);
+  let needsCanvas = $derived(!!clip && (clip.effects?.chroma?.enabled === true || layout.cutout || lut !== null));
 
   $effect(() => {
     if (!canvasEl) return;
@@ -89,7 +91,7 @@
     const el = videoEl;
     if (!el || !clip || !renderer || !needsCanvas || !glOk) return;
     const mask = layout.cutout && segmenter.ready ? segmenter.segment(fotogramaChico(el)) : null;
-    renderer.draw(el, { chroma: clip.effects?.chroma, mask, feather: layout.feather });
+    renderer.draw(el, { chroma: clip.effects?.chroma, mask, feather: layout.feather, lut });
   }
 
   /**

@@ -2,7 +2,8 @@ import type { MediaInfo } from "$lib/tauri/media";
 import { DEFAULT_TEXT, TEXT_DEFAULT_DURATION, type TextData } from "$lib/text/styles";
 import type { FrameSize } from "$lib/text/layout";
 import { DEFAULT_TRANSITION_DURATION, TRANSITION_MAX, TRANSITION_MIN } from "$lib/transitions/presets";
-import { DEFAULT_ADJUSTMENTS, isDefaultAdjust, type Adjustments, type ClipEffects } from "$lib/effects/presets";
+import { DEFAULT_ADJUSTMENTS, cloneEffects, isEmptyEffects, type Adjustments, type ClipEffects } from "$lib/effects/presets";
+import { DEFAULT_GRADE, type Grade } from "$lib/effects/grade.svelte";
 import { DEFAULT_CHROMA, type ChromaKey } from "$lib/effects/chroma";
 import { DEFAULT_PATCH, type PatchData } from "$lib/patches/types";
 import { frameForAspect, type AspectId, type FitMode } from "$lib/aspect";
@@ -608,7 +609,7 @@ class ProjectStore {
           start: s,
           // La transición solo tiene sentido en el último trozo del clip original.
           transition: e === to ? clip.transition : undefined,
-          effects: clip.effects ? { preset: clip.effects.preset, adjust: { ...clip.effects.adjust } } : undefined,
+          effects: cloneEffects(clip.effects),
         });
       }
     }
@@ -645,7 +646,7 @@ class ProjectStore {
     this.commit();
     const fx = ref.clip.effects ?? { preset: null, adjust: { ...DEFAULT_ADJUSTMENTS } };
     fx.preset = presetId;
-    ref.clip.effects = fx.preset === null && isDefaultAdjust(fx.adjust) ? undefined : fx;
+    ref.clip.effects = isEmptyEffects(fx) ? undefined : fx;
   }
 
   /** Enciende, apaga o ajusta la pantalla verde de un clip. */
@@ -663,7 +664,19 @@ class ProjectStore {
     if (!ref || ref.clip.kind === "text") return;
     const fx = ref.clip.effects ?? { preset: null, adjust: { ...DEFAULT_ADJUSTMENTS } };
     fx.adjust = { ...fx.adjust, ...patch };
-    ref.clip.effects = fx.preset === null && isDefaultAdjust(fx.adjust) ? undefined : fx;
+    ref.clip.effects = isEmptyEffects(fx) ? undefined : fx;
+  }
+
+  /**
+   * Cambia la corrección de color del clip. `replace` parte de cero (un look
+   * entero o «restablecer»); si no, solo toca lo que viene en `patch`.
+   */
+  setGrade(clipId: string, patch: Partial<Grade>, replace = false) {
+    const ref = this.findClip(clipId);
+    if (!ref || ref.clip.kind === "text") return;
+    const fx = ref.clip.effects ?? { preset: null, adjust: { ...DEFAULT_ADJUSTMENTS } };
+    fx.grade = { ...DEFAULT_GRADE, ...(replace ? {} : fx.grade), ...patch };
+    ref.clip.effects = isEmptyEffects(fx) ? undefined : fx;
   }
 
   /** Copia el efecto y los ajustes del clip a todos los de su pista. */
@@ -673,7 +686,10 @@ class ProjectStore {
     this.commit();
     const fx = ref.clip.effects;
     for (const c of ref.track.clips) {
-      c.effects = fx ? { preset: fx.preset, adjust: { ...fx.adjust } } : undefined;
+      // El croma no se copia: depende de cómo se grabó cada plano.
+      const copia = cloneEffects(fx);
+      if (copia) copia.chroma = c.effects?.chroma;
+      c.effects = copia && !isEmptyEffects(copia) ? copia : undefined;
     }
   }
 

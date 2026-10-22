@@ -90,6 +90,12 @@ pub struct ExportClip {
     /// Filtros de pantalla verde, también validados.
     #[serde(default)]
     pub chroma: Option<String>,
+    /// Corrección de color; el backend la hornea en un .cube para `lut3d`.
+    #[serde(default)]
+    pub grade: Option<crate::grade::Grade>,
+    /// Ruta del .cube horneado. La pone el backend, nunca el frontend.
+    #[serde(skip)]
+    pub lut: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -234,6 +240,33 @@ fn safe_chroma(raw: &Option<String>) -> Option<String> {
     check_filters(raw, ALLOWED)
 }
 
+/// `,lut3d=file='…'` para un .cube horneado aquí. La ruta va entre comillas y
+/// con `:` escapados porque ffmpeg los usa de separador (`C:\…` en Windows).
+fn lut_filter(path: &Option<String>) -> String {
+    match path {
+        Some(p) => format!(",lut3d=file='{}':interp=trilinear", p.replace('\\', "/").replace(':', "\\:")),
+        None => String::new(),
+    }
+}
+
+/// Hornea la corrección de color de cada clip en `dir` y apunta la ruta.
+fn bake_luts(plan: &mut ExportPlan, dir: &std::path::Path) -> Result<(), String> {
+    let clips = plan
+        .video
+        .iter_mut()
+        .chain(plan.background.iter_mut())
+        .chain(plan.layers.iter_mut().map(|l| &mut l.clip));
+    for (i, c) in clips.enumerate() {
+        let Some(g) = c.grade.as_ref().filter(|g| !g.is_identity()) else { continue };
+        std::fs::create_dir_all(dir).map_err(|e| format!("No se pudo crear la carpeta del color: {e}"))?;
+        let path = dir.join(format!("{i}.cube"));
+        std::fs::write(&path, g.bake(crate::grade::LUT_SIZE).to_cube())
+            .map_err(|e| format!("No se pudo escribir el LUT de color: {e}"))?;
+        c.lut = Some(path.to_string_lossy().into_owned());
+    }
+    Ok(())
+}
+
 /// Solo permitimos los filtros que genera el frontend: nombres conocidos y
 /// caracteres seguros, para que nada pueda inyectar otra cosa en el grafo.
 fn safe_filters(raw: &Option<String>) -> Option<String> {
@@ -364,7 +397,7 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     let mut filters: Vec<String> = Vec::new();
     for (i, c) in plan.video.iter().enumerate() {
         // Todos los segmentos al mismo tamaño/fps/formato para poder concatenarlos.
-        let fx = safe_filters(&c.filters).map(|f| format!(",{f}")).unwrap_or_default();
+        let fx = format!("{}{}", lut_filter(&c.lut), safe_filters(&c.filters).map(|f| format!(",{f}")).unwrap_or_default());
         // Con croma el clip conserva el canal alfa para que se vea el fondo por detrás.
         let chroma = safe_chroma(&c.chroma).map(|f| format!(",{f}")).unwrap_or_default();
         let out_fmt = if chroma.is_empty() { "format=yuv420p" } else { "format=yuva420p" };
@@ -438,10 +471,12 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
     for (k, c) in plan.background.iter().enumerate() {
         let idx = bg_first + k;
         let end = c.start + c.duration();
+        // El fondo lleva su color y sus efectos igual que en el preview.
+        let fx = format!("{}{}", lut_filter(&c.lut), safe_filters(&c.filters).map(|f| format!(",{f}")).unwrap_or_default());
         filters.push(format!(
             "[{idx}:v]setpts=PTS-STARTPTS+{}/TB,\
              scale={w}:{h}:force_original_aspect_ratio=increase:flags=bicubic,\
-             crop={w}:{h},setsar=1,fps={fps}[bgv{k}]",
+             crop={w}:{h},setsar=1,fps={fps}{fx}[bgv{k}]",
             sec(c.start)
         ));
         filters.push(format!(
@@ -466,7 +501,7 @@ fn build_args(plan: &ExportPlan, encoder: Encoder) -> Vec<String> {
         let bh = ((plan.height as f64 * scale) as u32).max(2) & !1;
         let bx = ((l.layout.x - scale / 2.0) * plan.width as f64).round() as i64;
         let by = ((l.layout.y - scale / 2.0) * plan.height as f64).round() as i64;
-        let fx = safe_filters(&l.clip.filters).map(|f| format!(",{f}")).unwrap_or_default();
+        let fx = format!("{}{}", lut_filter(&l.clip.lut), safe_filters(&l.clip.filters).map(|f| format!(",{f}")).unwrap_or_default());
         let chroma = safe_chroma(&l.clip.chroma).map(|f| format!(",{f}")).unwrap_or_default();
         // La capa se encaja en su caja igual que en el preview (rellenar/encajar).
         let caja = if plan.fit == "contain" {
@@ -697,6 +732,20 @@ pub async fn export_video(
             m.path = path.to_string_lossy().into_owned();
         }
     }
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let lut_dir = std::env::temp_dir().join(format!("cutvideo-color-{}-{nanos}", std::process::id()));
+    bake_luts(&mut plan, &lut_dir)?;
+    let result = export_baked(&app, state, plan).await;
+    let _ = std::fs::remove_dir_all(&lut_dir);
+    result
+}
+
+async fn export_baked(
+    app: &AppHandle,
+    state: State<'_, ExportState>,
+    plan: ExportPlan,
+) -> Result<ExportResult, String> {
+    let app = app.clone();
     let total = total_duration(&plan);
     let state = state.inner();
     state.cancelled.store(false, Ordering::SeqCst);
@@ -873,7 +922,48 @@ mod tests {
             transition: None,
             filters: None,
             chroma: None,
+            grade: None,
+            lut: None,
         }
+    }
+
+    #[test]
+    fn la_ruta_del_lut_va_escapada() {
+        assert_eq!(lut_filter(&None), "");
+        assert_eq!(
+            lut_filter(&Some(r"C:\Temp\0.cube".into())),
+            r",lut3d=file='C\:/Temp/0.cube':interp=trilinear"
+        );
+    }
+
+    /// El .cube que horneamos lo entiende el lut3d de ffmpeg y cambia el color.
+    #[test]
+    fn ffmpeg_aplica_el_lut_horneado() {
+        let Ok(ffmpeg) = std::env::var("CUTVIDEO_FFMPEG") else { return };
+        let dir = std::env::temp_dir().join(format!("cutvideo-lut-test-{}", std::process::id()));
+        let mut plan_clip = clip("x", 0.0, 1.0, 0.0, false);
+        plan_clip.grade = Some(crate::grade::Grade { saturation: 0.0, ..Default::default() });
+        let mut plan = ExportPlan {
+            video: vec![plan_clip],
+            ..serde_json::from_value(serde_json::json!({
+                "output": "", "width": 2, "height": 2, "fps": 1.0, "video": [], "background": [],
+                "audio": [], "layers": [], "encoder": "auto", "fit": "cover", "overlays": []
+            }))
+            .unwrap()
+        };
+        bake_luts(&mut plan, &dir).unwrap();
+        let lut = plan.video[0].lut.clone().unwrap();
+        // Un píxel rojo puro pasado por el LUT de «saturación 0» sale gris.
+        let out = std::process::Command::new(ffmpeg)
+            .args(["-v", "error", "-f", "lavfi", "-i", "color=c=red:s=16x16:d=0.1", "-vf"])
+            .arg(format!("format=rgb24{},format=rgb24", lut_filter(&Some(lut))))
+            .args(["-frames:v", "1", "-f", "rawvideo", "-"])
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let px = &out.stdout[..3];
+        assert!(px[0].abs_diff(px[1]) < 4 && px[1].abs_diff(px[2]) < 4, "{px:?}");
     }
 
     /// Cambiar la proporción debe producir un MP4 con esas dimensiones,

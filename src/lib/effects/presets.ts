@@ -1,4 +1,5 @@
 import type { ChromaKey } from "./chroma";
+import { isDefaultGrade, type Grade } from "./grade.svelte";
 /**
  * Efectos de color por clip. Cada preset tiene su versión CSS (preview, filtro
  * sobre el <video>) y su versión ffmpeg (export). No son idénticas al píxel,
@@ -66,7 +67,20 @@ export interface ClipEffects {
   adjust: Adjustments;
   /** Pantalla verde: deja ver la pista de fondo por detrás. */
   chroma?: ChromaKey;
+  /** Corrección de color (LUT 3D horneado en Rust). */
+  grade?: Grade;
 }
+
+/** true si el clip no lleva nada y se puede quitar `effects` entero. */
+export const isEmptyEffects = (fx: ClipEffects) =>
+  fx.preset === null && isDefaultAdjust(fx.adjust) && !fx.chroma?.enabled && isDefaultGrade(fx.grade);
+
+/**
+ * Copia independiente: los objetos anidados no se comparten entre clips. Por
+ * JSON porque `structuredClone` no acepta los proxies de estado de Svelte.
+ */
+export const cloneEffects = (fx: ClipEffects | undefined): ClipEffects | undefined =>
+  fx ? (JSON.parse(JSON.stringify(fx)) as ClipEffects) : undefined;
 
 export const isDefaultAdjust = (a: Adjustments) =>
   a.brightness === 0 && a.contrast === 1 && a.saturation === 1 && a.hue === 0 && a.blur === 0 && a.vignette === 0;

@@ -1,6 +1,7 @@
 mod ai;
 mod analyze;
 mod export;
+mod grade;
 mod highlights;
 mod learning;
 mod media;
@@ -94,6 +95,7 @@ pub fn run() {
             patches::list_patches,
             patches::import_patch,
             patches::delete_patch,
+            grade::grade_lut,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

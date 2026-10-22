@@ -288,6 +288,8 @@ mod tests {
             transition: None,
             filters: None,
             chroma: None,
+            grade: None,
+            lut: None,
         };
         let clips = vec![clip("clipA.mp4", 0.0, 2.0, 0.0, true), clip("mute.mp4", 0.0, 1.0, 2.0, false)];
         let output = format!("{dir}/transcribe-test.mp3");

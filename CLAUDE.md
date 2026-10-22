@@ -24,7 +24,7 @@ npm install
 npm run dev          # modo navegador: UI con la API de Tauri simulada (dev-mock.ts)
 npm run tauri dev    # app de verdad
 npm run check        # svelte-check (debe salir 0 errores)
-cd src-tauri && cargo test           # 34 tests
+cd src-tauri && cargo test           # 40 tests
 ./scripts/release.sh 0.1.12          # publica versión (ver abajo)
 ```
 
@@ -76,6 +76,14 @@ personas (MediaPipe `selfie_segmenter` empaquetado en `static/`, sin internet).
 En el preview van en un shader (`preview/layer-gl.ts`); al exportar, el frontend
 escribe la silueta en crudo y ffmpeg la aplica con `alphamerge`. **Las capas
 suenan**; un clip puede ir mudo y su audio separarse a A1 y volver a unirse.
+
+**Color** (`grade.rs`, `effects/grade.svelte.ts`): la corrección de color es
+la de Lumetri de FilmCraft (código copiado en `src-tauri/vendor/filmcraft`, MIT
+OR Apache-2.0). Rust la hornea en un LUT 3D de 33³ y esa misma tabla se aplica
+en el preview (tira 2D en el shader de `layer-gl.ts`, interpolación trilineal a
+mano porque WebGL 1 no tiene texturas 3D) y en el export (`lut3d`, también
+trilineal). Así coinciden; los presets viejos (CSS vs `eq`) solo se parecen.
+En modo navegador el LUT lo hace una copia en JS en `dev-mock.ts`.
 
 **Timeline con imagen**: `ClipArt.svelte` pinta en un canvas los fotogramas de
 la tira (`make_filmstrip`) y la forma de onda (`make_waveform`, picos a 50/s).

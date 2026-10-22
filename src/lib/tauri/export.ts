@@ -7,6 +7,7 @@ import { renderTextClips } from "$lib/text/render";
 import { getTransition } from "$lib/transitions/presets";
 import { effectsFfmpeg } from "$lib/effects/presets";
 import { chromaFfmpeg } from "$lib/effects/chroma";
+import { isDefaultGrade, type Grade } from "$lib/effects/grade.svelte";
 import { drawPatches, loadPatchImages } from "$lib/patches/render";
 import { renderCutoutMasks, type MaskSequence } from "$lib/segment/masks";
 import { DEFAULT_LAYOUT } from "$lib/layers";
@@ -26,6 +27,8 @@ export interface ExportClip {
   filters?: string | null;
   /** Cadena de filtros de pantalla verde, o null. */
   chroma?: string | null;
+  /** Corrección de color; Rust la hornea en un LUT para lut3d. */
+  grade?: Grade | null;
 }
 
 export interface ExportOverlay {
@@ -100,6 +103,8 @@ export function targetSize(orig: FrameSize, shortSide: number | null): FrameSize
   return { width: even(orig.width * scale), height: even(orig.height * scale), fps: orig.fps };
 }
 
+const gradeOf = (c: Clip) => (isDefaultGrade(c.effects?.grade) ? null : c.effects!.grade!);
+
 /** Clips de las capas superpuestas, de abajo arriba (O2 primero, O1 encima). */
 export function overlayLayerClips(): Clip[] {
   return [...project.overlayTracks].reverse().flatMap((t) => t.clips);
@@ -140,11 +145,13 @@ export function buildExportPlan(
         transition: preset && duration > 0 ? { xfade: preset.xfade, duration } : null,
         filters: filters || null,
         chroma: chroma || null,
+        grade: gradeOf(c),
       };
     }),
     background: project.backgroundTrack.clips.map((c) => ({
       ...toClip(c),
       filters: effectsFfmpeg(c.effects, size.height) || null,
+      grade: gradeOf(c),
     })),
     audio: project.audioTrack.clips.map(toClip),
     layers: overlayLayerClips().map((c): ExportLayer => {
@@ -155,6 +162,7 @@ export function buildExportPlan(
           hasAudio: project.mediaOf(c)?.audio != null && !c.muted,
           filters: effectsFfmpeg(c.effects, size.height) || null,
           chroma: chromaFfmpeg(c.effects?.chroma) || null,
+          grade: gradeOf(c),
         },
         layout: { x: l.x, y: l.y, scale: l.scale, opacity: l.opacity },
         mask: assets.masks.get(c.id) ?? null,
